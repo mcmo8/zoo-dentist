@@ -30,7 +30,8 @@ def sweep_mouth(page, box, passes=2):
 
 def run_visit(page, svg, label, visit_no):
     page.screenshot(path=f'{OUT}/v{visit_no}-start.png')
-    for round_no in range(14):
+    no_progress = 0
+    for round_no in range(16):
         if label.count() == 0:
             break
         before = label.inner_text()
@@ -47,9 +48,15 @@ def run_visit(page, svg, label, visit_no):
         if label.count() == 0:
             break
         if label.inner_text() == before:
-            page.screenshot(path=f'{OUT}/v{visit_no}-stuck.png')
-            print(f'VISIT {visit_no} STUCK on: {before}')
-            return False
+            # a long step (e.g. brushing many teeth) can span rounds —
+            # only call it stuck after 3 rounds with zero label change
+            no_progress += 1
+            if no_progress >= 3:
+                page.screenshot(path=f'{OUT}/v{visit_no}-stuck.png')
+                print(f'VISIT {visit_no} STUCK on: {before}')
+                return False
+        else:
+            no_progress = 0
     page.wait_for_timeout(1300)
     ok = page.locator('text=NEXT PATIENT').count() > 0
     page.screenshot(path=f'{OUT}/v{visit_no}-end.png')

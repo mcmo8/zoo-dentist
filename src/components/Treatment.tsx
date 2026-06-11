@@ -263,7 +263,7 @@ export function Treatment({
         s.y = y;
         if (i !== null && teethRef.current[i].plaque > 0.02 && d < 60) {
           s.dist += d;
-          if (s.dist > 55) {
+          if (s.dist > 45) {
             s.dist = 0;
             updateTooth(i, (t) => {
               t.plaque = Math.max(0, t.plaque - 0.34);
