@@ -1,0 +1,450 @@
+/* Zoo Smiles — screens, HUD, and animations. Transform/opacity only. */
+
+.zd-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #bfe8f2;
+}
+
+/* ---------- HUD ---------- */
+
+.zd-hud {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+
+.zd-home {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #1d3557;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  box-shadow: 0 3px 0 #1d355733;
+}
+.zd-home:active {
+  transform: scale(0.92);
+}
+
+.zd-steplabel {
+  flex: 1;
+  text-align: center;
+  background: #fff;
+  border: 3px solid #1d3557;
+  border-radius: 22px;
+  padding: 8px 10px;
+  font-size: 17px;
+  font-weight: 800;
+  color: #1d3557;
+  min-height: 24px;
+}
+
+.zd-stars {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+  max-width: 84px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.zd-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #1d3557;
+  display: inline-block;
+}
+.zd-dot.on {
+  background: #ffe066;
+}
+
+.zd-progress {
+  height: 10px;
+  margin: 2px 16px;
+  border-radius: 6px;
+  background: #ffffffaa;
+  border: 2px solid #1d3557;
+  overflow: hidden;
+}
+.zd-progress-fill {
+  height: 100%;
+  background: #6fc9ec;
+  transition: width 0.15s linear;
+}
+
+.zd-scene {
+  flex: 1;
+  width: 100%;
+  touch-action: none;
+  display: block;
+}
+
+/* ---------- title ---------- */
+
+.zd-title {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(180deg, #8fd8ef 0%, #bfe8f2 60%, #9fd8c8 100%);
+}
+
+.zd-logo {
+  font-size: clamp(40px, 13vw, 64px);
+  color: #1d3557;
+  letter-spacing: 1px;
+  text-shadow: 0 3px 0 #ffffff;
+}
+.zd-logo span {
+  color: #ff7bac;
+}
+.zd-tagline {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1d3557;
+  opacity: 0.75;
+  margin-bottom: 26px;
+}
+
+.zd-play {
+  background: #9be37c;
+  border: 4px solid #1d3557;
+  border-radius: 34px;
+  padding: 16px 52px;
+  font-size: 26px;
+  font-weight: 900;
+  color: #1d3557;
+  box-shadow: 0 5px 0 #1d355744;
+  animation: zd-breathe 1.6s ease-in-out infinite;
+}
+.zd-play:active {
+  transform: scale(0.94);
+}
+
+.zd-sound {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top, 10px));
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid #1d3557;
+  font-size: 20px;
+  z-index: 5;
+}
+.zd-lobby .zd-sound {
+  position: static;
+}
+
+.zd-wave {
+  transform-origin: 146px 80px;
+  animation: zd-wavearm 1.2s ease-in-out infinite;
+}
+
+/* ---------- lobby ---------- */
+
+.zd-lobby {
+  background: linear-gradient(180deg, #bfe8f2 0%, #d8f0e4 100%);
+}
+
+.zd-lobby-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 4px;
+}
+.zd-lobby-title {
+  font-size: 24px;
+  font-weight: 900;
+  color: #1d3557;
+}
+.zd-lobby-title span {
+  color: #ff7bac;
+}
+.zd-lobby-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.zd-smilecount {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #fff;
+  border: 3px solid #1d3557;
+  border-radius: 18px;
+  padding: 5px 12px;
+  font-weight: 900;
+  color: #1d3557;
+}
+
+.zd-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  padding: 12px 14px calc(20px + env(safe-area-inset-bottom, 12px));
+  align-content: start;
+}
+
+.zd-card {
+  position: relative;
+  border: 3.5px solid #1d3557;
+  border-radius: 20px;
+  padding: 8px 6px 10px;
+  box-shadow: 0 4px 0 #1d355733;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.zd-card:active {
+  transform: scale(0.95);
+}
+.zd-card-face {
+  width: 100%;
+  max-height: 130px;
+}
+.zd-card-name {
+  font-size: 18px;
+  font-weight: 900;
+  color: #1d3557;
+  margin-top: 4px;
+}
+.zd-card-next {
+  animation: zd-breathe 1.4s ease-in-out infinite;
+}
+.zd-card-locked {
+  opacity: 0.45;
+  filter: saturate(0.4);
+}
+.zd-zzz {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-weight: 900;
+  color: #1d3557;
+  opacity: 0.7;
+}
+.zd-ouch {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: #fff;
+  border: 2.5px solid #1d3557;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  animation: zd-bouncey 0.9s ease-in-out infinite;
+}
+.zd-badge {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  color: #f4b400;
+  font-size: 15px;
+  text-shadow: 0 1px 0 #1d3557;
+  letter-spacing: 1px;
+}
+
+/* ---------- celebrate ---------- */
+
+.zd-celebrate {
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: linear-gradient(180deg, #ffd86b 0%, #ffb38a 100%);
+  text-align: center;
+}
+.zd-celebrate-title {
+  font-size: clamp(36px, 11vw, 54px);
+  color: #1d3557;
+  text-shadow: 0 3px 0 #ffffffaa;
+  animation: zd-pop 0.5s ease-out both;
+}
+.zd-celebrate-sub {
+  font-size: 19px;
+  font-weight: 800;
+  color: #1d3557;
+}
+.zd-celebrate-face {
+  position: relative;
+  z-index: 1;
+}
+.zd-celebrate-burst {
+  position: absolute;
+  width: 130vw;
+  height: 130vw;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  background: repeating-conic-gradient(#ffffff33 0deg 12deg, transparent 12deg 24deg);
+  border-radius: 50%;
+  animation: zd-spinslow 22s linear infinite;
+}
+.zd-pophappy {
+  animation: zd-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both 0.15s;
+}
+.zd-celebrate-stars {
+  display: flex;
+  gap: 16px;
+  margin: 2px 0 14px;
+}
+.zd-bigstar {
+  font-size: 42px;
+  color: #ffe066;
+  text-shadow: 0 2px 0 #1d3557;
+  animation: zd-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.zd-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+.zd-confetti-piece {
+  position: absolute;
+  top: -14px;
+  width: 10px;
+  height: 14px;
+  animation: zd-fall linear infinite;
+}
+
+/* ---------- in-scene animations ---------- */
+
+.zd-target {
+  animation: zd-glow 1.1s ease-in-out infinite;
+}
+
+.zd-bounce {
+  animation: zd-bouncey 0.9s ease-in-out infinite;
+}
+
+.zd-shake {
+  animation: zd-shakex 0.45s ease-in-out;
+}
+
+.zd-wiggle {
+  animation: zd-wigglerot 0.22s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.zd-spark {
+  animation: zd-sparkpop 0.8s ease-out both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.zd-revealed {
+  animation: zd-pop 0.35s ease-out both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.zd-germ {
+  animation: zd-bob 1.3s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.zd-stink {
+  animation: zd-bob 2.2s ease-in-out infinite;
+}
+
+.zd-hintarrow {
+  animation: zd-hintup 1.1s ease-in-out infinite;
+}
+
+.zd-particle {
+  pointer-events: none;
+}
+.zd-foam,
+.zd-poof,
+.zd-star {
+  animation: zd-drift 0.9s ease-out both;
+}
+.zd-water {
+  animation: zd-dripfall 0.9s ease-in both;
+}
+.zd-toothfly {
+  animation: zd-flyoff 0.9s ease-in both;
+}
+
+/* ---------- keyframes ---------- */
+
+@keyframes zd-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+@keyframes zd-bouncey {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+@keyframes zd-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@keyframes zd-shakex {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  50% { transform: translateX(6px); }
+  75% { transform: translateX(-4px); }
+}
+@keyframes zd-wigglerot {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(5deg); }
+}
+@keyframes zd-sparkpop {
+  0% { transform: scale(0); opacity: 1; }
+  60% { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0; }
+}
+@keyframes zd-pop {
+  0% { transform: scale(0); }
+  70% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+@keyframes zd-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes zd-hintup {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(-16px); opacity: 0.8; }
+}
+@keyframes zd-drift {
+  0% { transform: translate(0, 0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx, 0px), var(--dy, -40px)) scale(0.6); opacity: 0; }
+}
+@keyframes zd-dripfall {
+  0% { transform: translateY(0); opacity: 0.95; }
+  100% { transform: translateY(46px); opacity: 0; }
+}
+@keyframes zd-flyoff {
+  0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx, 30px), -150px) rotate(220deg) scale(0.9); opacity: 0; }
+}
+@keyframes zd-fall {
+  0% { transform: translateY(-10px) rotate(0deg); }
+  100% { transform: translateY(105vh) rotate(360deg); }
+}
+@keyframes zd-spinslow {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes zd-wavearm {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(14deg); }
+}
