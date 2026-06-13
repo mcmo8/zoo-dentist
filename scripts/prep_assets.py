@@ -129,9 +129,12 @@ def prep_svgs(page):
 
 
 def main():
-    print('Effects (raster white-bg removal):')
-    prep_effects()
-    print('Teeth: transparent already, left untouched.')
+    # NOTE (R2): teeth + effects are now delivered pre-cleaned/transparent by the
+    # artist, so this script no longer touches them (prep_effects is kept for
+    # reference but intentionally NOT called — re-running it would overwrite the
+    # finished WebPs from the stale _raw backups). Only the animal/tool SVGs,
+    # whose raw art still has a baked white background, are prepped here.
+    print('Teeth + effects: delivered transparent, left untouched.')
     print('Animals + tools (SVG strip + tight viewBox):')
     with sync_playwright() as p:
         b = p.chromium.launch()
