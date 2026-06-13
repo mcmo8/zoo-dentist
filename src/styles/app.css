@@ -6,7 +6,10 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #bfe8f2;
+  background-color: #bfe8f2;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
 /* ---------- HUD ---------- */
@@ -91,9 +94,23 @@
 
 .zd-title {
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: 6px;
-  background: linear-gradient(180deg, #8fd8ef 0%, #bfe8f2 60%, #9fd8c8 100%);
+  padding-bottom: calc(8vh + env(safe-area-inset-bottom, 0px));
+  background-color: #cdebf5;
+}
+/* push the logo block into the lower third, clear of the clinic art */
+.zd-title-spacer {
+  flex: 1;
+}
+/* a soft scrim keeps the logo legible over the illustrated storefront */
+.zd-title .zd-logo,
+.zd-title .zd-tagline {
+  padding: 0 14px;
+  border-radius: 14px;
+}
+.zd-title .zd-logo {
+  background: #ffffffb0;
 }
 
 .zd-logo {
@@ -152,7 +169,7 @@
 /* ---------- lobby ---------- */
 
 .zd-lobby {
-  background: linear-gradient(180deg, #bfe8f2 0%, #d8f0e4 100%);
+  background-color: #d8f0e4;
 }
 
 .zd-lobby-head {
@@ -219,12 +236,14 @@
   color: #1d3557;
   margin-top: 4px;
 }
+/* gentle "it's your turn" pulse — small enough that the face never ghosts */
 .zd-card-next {
-  animation: zd-breathe 1.4s ease-in-out infinite;
+  animation: zd-nudge 1.5s ease-in-out infinite;
 }
+/* not-yet-unlocked patients stay full-bright + full-saturation (the scripted
+   curve still gates the tap); a small Zzz is the only "asleep" cue. */
 .zd-card-locked {
-  opacity: 0.45;
-  filter: saturate(0.4);
+  opacity: 1;
 }
 .zd-zzz {
   position: absolute;
@@ -342,6 +361,14 @@
   transform-origin: center;
 }
 
+/* stand-in for the patient wince while a tooth is drilled/pulled (art is a
+   fixed expression, so the whole face does a small nervous nudge) */
+.zd-wince {
+  animation: zd-wincenudge 0.26s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 .zd-spark {
   animation: zd-sparkpop 0.8s ease-out both;
   transform-box: fill-box;
@@ -389,6 +416,10 @@
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.05); }
 }
+@keyframes zd-nudge {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.025); }
+}
 @keyframes zd-bouncey {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-7px); }
@@ -406,6 +437,10 @@
 @keyframes zd-wigglerot {
   0%, 100% { transform: rotate(-5deg); }
   50% { transform: rotate(5deg); }
+}
+@keyframes zd-wincenudge {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(3px) rotate(-1.5deg); }
 }
 @keyframes zd-sparkpop {
   0% { transform: scale(0); opacity: 1; }

@@ -2,6 +2,7 @@ import type { AnimalId, SaveData } from '../game/types';
 import { ANIMALS } from '../game/animals';
 import { nextScripted } from '../game/levels';
 import { AnimalFace } from './AnimalFace';
+import { BACKGROUNDS } from '../game/assets';
 import * as sfx from '../lib/sfx';
 
 /* The waiting room. During the scripted teaching phase only the next
@@ -21,7 +22,10 @@ export function Lobby({
   const next = nextScripted(save.treated);
 
   return (
-    <div className="zd-screen zd-lobby">
+    <div
+      className="zd-screen zd-lobby"
+      style={{ backgroundImage: `url(${BACKGROUNDS.lobby})` }}
+    >
       <header className="zd-lobby-head">
         <div className="zd-lobby-title">
           Who needs <span>help?</span>
@@ -62,7 +66,7 @@ export function Lobby({
                 sfx.pop();
                 onPick(a.id);
               }}
-              style={{ background: `linear-gradient(180deg, ${a.accent}55, #ffffff)` }}
+              style={{ background: `linear-gradient(180deg, ${a.accent}, #ffffff)` }}
             >
               <svg viewBox="0 0 360 430" className="zd-card-face">
                 <AnimalFace

@@ -16,6 +16,7 @@ import { initTeeth, stepDone, toothDoneForTool, toothHealthy } from '../game/eng
 import { computeToothLayout, Mouth, MOUTH_CX, MOUTH_CY, MOUTH_RX, MOUTH_RY } from './Mouth';
 import { AnimalFace, type Expression } from './AnimalFace';
 import { ToolSprite, PuzzlePiece } from './tools';
+import { TOOTH_ART, BACKGROUNDS } from '../game/assets';
 import * as sfx from '../lib/sfx';
 
 const VB_W = 360;
@@ -588,7 +589,10 @@ export function Treatment({
   const trayCount = trayItems.length;
 
   return (
-    <div className="zd-screen">
+    <div
+      className="zd-screen zd-treat"
+      style={{ backgroundImage: `url(${BACKGROUNDS.treatment})` }}
+    >
       <header className="zd-hud">
         <button className="zd-home" onClick={onHome} aria-label="Home">
           <svg viewBox="0 0 24 24" width="26" height="26">
@@ -625,11 +629,15 @@ export function Treatment({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {/* clinic backdrop */}
-        <rect x="0" y="0" width={VB_W} height={VB_H} fill="#bfe8f2" />
-        <rect x="0" y="380" width={VB_W} height="180" fill="#9fd8c8" />
-
-        <AnimalFace spec={spec} expr={expr} mouthOpen />
+        {/* treatment-room.webp is the fixed back layer (CSS bg on .zd-treat);
+            the scene SVG is transparent and composites the patient + mouth on
+            top. The lamp/tray/reception props are NOT overlaid: the room art
+            already bakes in the overhead lamp, the tool cart and the desk.
+            The art is a fixed expression, so a small CSS nudge stands in for the
+            wince while a tooth is being drilled/pulled. */}
+        <g className={expr === 'wince' ? 'zd-wince' : undefined}>
+          <AnimalFace spec={spec} expr={expr} mouthOpen />
+        </g>
         <Mouth
           spec={spec}
           teeth={teeth}
@@ -660,9 +668,7 @@ export function Treatment({
               <path d="M0,-9 L2,-2 L9,0 L2,2 L0,9 L-2,2 L-9,0 L-2,-2 Z" fill="#ffe066" />
             )}
             {p.kind === 'toothfly' && (
-              <g>
-                <ToolSprite tool="implant" />
-              </g>
+              <image href={TOOTH_ART.clean} x={-16} y={-20} width={32} height={40} preserveAspectRatio="xMidYMid meet" />
             )}
           </g>
           </g>

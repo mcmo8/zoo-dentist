@@ -29,9 +29,14 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // include the connector-art (svg animals/tools + webp teeth/effects/
+        // backgrounds/props) so the whole game boots offline once installed.
+        globPatterns: ['**/*.{js,css,html,svg,png,webp,woff2}'],
       },
     }),
   ],
+  // Keep every art asset as a separate hashed file (don't base64-inline small
+  // ones into the JS bundle): leaner main bundle + each asset precached once.
+  build: { assetsInlineLimit: 0 },
   server: { host: true },
 });

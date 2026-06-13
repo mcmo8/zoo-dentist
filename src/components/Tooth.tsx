@@ -1,4 +1,5 @@
 import type { DebrisKind, PuzzleShape, ToothShape, ToothState } from '../game/types';
+import { TOOTH_ART, EFFECT_ART } from '../game/assets';
 
 export interface ToothPlacement {
   index: number;
@@ -12,64 +13,20 @@ export interface ToothPlacement {
 
 const INK = '#1d3557';
 
-/** Crown silhouette in local coords (0,0..w,h). Biting edge faces
-    y=h when dir='down' (top row) and y=0 when dir='up' (bottom row). */
-export function toothPath(
-  shape: ToothShape,
-  w: number,
-  h: number,
-  dir: 'down' | 'up'
-): string {
-  const r = w * 0.24;
-  // helper to flip y for dir 'down'
-  const F = (y: number) => (dir === 'up' ? y : h - y);
-  switch (shape) {
-    case 'molar': {
-      // two cusps at the biting edge, flat at the gum edge
-      return [
-        `M0,${F(h)}`,
-        `L0,${F(h * 0.3)}`,
-        `Q0,${F(0)} ${w * 0.27},${F(h * 0.04)}`,
-        `Q${w * 0.5},${F(h * 0.24)} ${w * 0.73},${F(h * 0.04)}`,
-        `Q${w},${F(0)} ${w},${F(h * 0.3)}`,
-        `L${w},${F(h)}`,
-        'Z',
-      ].join(' ');
-    }
-    case 'fang': {
-      return [
-        `M${w * 0.1},${F(h)}`,
-        `Q${w * 0.02},${F(h * 0.42)} ${w * 0.4},${F(h * 0.08)}`,
-        `Q${w * 0.5},${F(0)} ${w * 0.6},${F(h * 0.08)}`,
-        `Q${w * 0.98},${F(h * 0.42)} ${w * 0.9},${F(h)}`,
-        'Z',
-      ].join(' ');
-    }
-    case 'tusk': {
-      return [
-        `M${w * 0.18},${F(h)}`,
-        `Q${w * 0.04},${F(h * 0.38)} ${w * 0.34},${F(h * 0.1)}`,
-        `Q${w * 0.46},${F(0)} ${w * 0.62},${F(h * 0.12)}`,
-        `Q${w * 0.96},${F(h * 0.5)} ${w * 0.84},${F(h)}`,
-        'Z',
-      ].join(' ');
-    }
-    case 'buck':
-    case 'square':
-    default: {
-      // rounded rect; slightly rounder corners on the biting edge
-      return [
-        `M0,${F(h)}`,
-        `L0,${F(r)}`,
-        `Q0,${F(0)} ${r},${F(0)}`,
-        `L${w - r},${F(0)}`,
-        `Q${w},${F(0)} ${w},${F(r)}`,
-        `L${w},${F(h)}`,
-        'Z',
-      ].join(' ');
-    }
-  }
-}
+/* Tooth art is now the finished WebP tooth-state set (clean / plaque / hole /
+   filling / rotten / shaking), composited over a clean white-bodied base. The
+   per-animal crown SHAPE (fang/molar/tusk) is replaced by the uniform art
+   molar; the mouth layout still varies the count, size and position of teeth,
+   and hit-testing is unchanged (it keys off the slot's cx/cy/w/h).
+
+   Two things stay procedural on purpose:
+   - the chip NOTCH (tri/square/round) — its silhouette must match the tray
+     puzzle piece the child picks, so the shape has to be visible;
+   - the DebrisSprite food shapes — the art set only ships a candy, but the five
+     food kinds (candy/carrot/leaf/bone/fish) read better as distinct sprites. */
+
+// teeth WebP intrinsic aspect (width / height) after prep crop.
+const TOOTH_ASPECT = 0.86;
 
 function DebrisSprite({ kind, s }: { kind: DebrisKind; s: number }) {
   switch (kind) {
@@ -119,22 +76,6 @@ function DebrisSprite({ kind, s }: { kind: DebrisKind; s: number }) {
   }
 }
 
-function Germ({ s, wiggling }: { s: number; wiggling: boolean }) {
-  return (
-    <g className={wiggling ? 'zd-germ zd-wiggle' : 'zd-germ'}>
-      <circle r={s} fill="#7ed26a" stroke={INK} strokeWidth="1.8" />
-      <circle cx={-s * 0.32} cy={-s * 0.15} r={s * 0.18} fill="#fff" />
-      <circle cx={s * 0.32} cy={-s * 0.15} r={s * 0.18} fill="#fff" />
-      <circle cx={-s * 0.32} cy={-s * 0.15} r={s * 0.09} fill={INK} />
-      <circle cx={s * 0.32} cy={-s * 0.15} r={s * 0.09} fill={INK} />
-      <path d={`M${-s * 0.3},${s * 0.3} Q0,${s * 0.55} ${s * 0.3},${s * 0.3}`} fill="none" stroke={INK} strokeWidth="1.6" strokeLinecap="round" />
-      <rect x={-s * 0.16} y={s * 0.3} width={s * 0.14} height={s * 0.18} rx={s * 0.04} fill="#fff" stroke={INK} strokeWidth="0.8" />
-      <rect x={s * 0.04} y={s * 0.3} width={s * 0.14} height={s * 0.18} rx={s * 0.04} fill="#fff" stroke={INK} strokeWidth="0.8" />
-      <path d={`M${-s * 0.75},${-s * 0.7} Q${-s * 0.5},${-s * 1.0} ${-s * 0.3},${-s * 0.75}`} fill="none" stroke={INK} strokeWidth="1.6" strokeLinecap="round" />
-    </g>
-  );
-}
-
 /** Notch wedge for chipped teeth — the bite missing from a biting-edge corner. */
 function chipNotchPath(shape: PuzzleShape, w: number, h: number, dir: 'down' | 'up'): string {
   const F = (y: number) => (dir === 'up' ? y : h - y);
@@ -153,6 +94,19 @@ function chipNotchPath(shape: PuzzleShape, w: number, h: number, dir: 'down' | '
   }
 }
 
+/** Dominant tooth-surface art layered over the clean base (null = stays clean). */
+function surfaceArt(
+  t: ToothState,
+  wiggling: boolean
+): { src: string; opacity: number } | null {
+  if (t.rot === 'rotten') return { src: wiggling ? TOOTH_ART.shaking : TOOTH_ART.rotten, opacity: 1 };
+  if (t.cavity === 'hole') return { src: TOOTH_ART.hole, opacity: 1 };
+  if (t.cavity === 'filled') return { src: TOOTH_ART.filling, opacity: 1 };
+  if (t.plaque > 0.02) return { src: TOOTH_ART.plaque, opacity: Math.min(1, t.plaque * 0.85 + 0.15) };
+  // implanted / drilled / repaired / clean all read as the clean base
+  return null;
+}
+
 export function Tooth({
   p,
   t,
@@ -166,13 +120,12 @@ export function Tooth({
   wiggling: boolean;
   highlight: boolean;
 }) {
-  const { w, h, dir, shape } = p;
-  const path = toothPath(shape, w, h, dir);
-  // crown center (where problems sit): toward the biting edge
-  const crownY = dir === 'up' ? h * 0.32 : h * 0.68;
+  const { w, h, dir } = p;
+  // crown center (where loose problems sit): toward the biting edge
+  const crownY = dir === 'up' ? h * 0.34 : h * 0.66;
 
   if (t.rot === 'gone') {
-    // empty socket at the gum line
+    // empty socket at the gum line (procedural — a gum gap, not a tooth)
     const sockY = dir === 'up' ? h * 0.85 : h * 0.15;
     return (
       <g transform={`translate(${p.cx - w / 2},${p.cy - h / 2})`}>
@@ -190,109 +143,102 @@ export function Tooth({
     );
   }
 
-  const isRotten = t.rot === 'rotten';
-  const isImplant = t.rot === 'implanted';
-  const baseFill = isRotten ? '#9b8265' : isImplant ? '#ffffff' : '#fdfaf2';
+  const DW = w * 1.08;          // displayed tooth width
+  const DH = DW / TOOTH_ASPECT; // proportional height
+  const surface = surfaceArt(t, wiggling);
+  const dim = revealed ? 1 : 0.16;
 
   return (
     <g transform={`translate(${p.cx - w / 2},${p.cy - h / 2})`}>
-    <g className={wiggling ? 'zd-wiggle' : undefined}>
-      <path
-        d={path}
-        fill={baseFill}
-        stroke={INK}
-        strokeWidth="2.2"
-        strokeLinejoin="round"
-        className={highlight ? 'zd-target' : undefined}
-      />
-      {/* soft side shade */}
-      <path d={path} fill="#1d3557" opacity={isRotten ? 0.18 : 0.06} transform={`translate(${w * 0.06},0) scale(0.88,1)`} />
+      <g className={wiggling ? 'zd-wiggle' : undefined}>
+        {highlight && (
+          <ellipse
+            cx={w / 2}
+            cy={h / 2}
+            rx={DW * 0.52}
+            ry={DH * 0.46}
+            fill="#ffe066"
+            opacity="0.5"
+            className="zd-target"
+          />
+        )}
 
-      {isRotten && (
-        <g stroke="#5d4a33" strokeWidth="1.6" strokeLinecap="round">
-          <path d={`M${w * 0.3},${crownY - h * 0.18} l${w * 0.12},${h * 0.14} l${-w * 0.08},${h * 0.12}`} fill="none" />
-          <path d={`M${w * 0.62},${crownY - h * 0.1} l${w * 0.1},${h * 0.12}`} fill="none" />
+        {/* tooth body (art), crown flipped to point down on the top row */}
+        <g
+          transform={`translate(${w / 2},${h / 2})${dir === 'down' ? ' scale(1,-1)' : ''}`}
+        >
+          <image href={TOOTH_ART.clean} x={-DW / 2} y={-DH / 2} width={DW} height={DH} preserveAspectRatio="xMidYMid meet" />
+          {surface && (
+            <image
+              href={surface.src}
+              x={-DW / 2}
+              y={-DH / 2}
+              width={DW}
+              height={DH}
+              preserveAspectRatio="xMidYMid meet"
+              opacity={dim * surface.opacity}
+              className={revealed ? 'zd-revealed' : undefined}
+            />
+          )}
         </g>
-      )}
 
-      {/* problem overlays — dimmed until the magnifier reveals them */}
-      <g className={revealed ? 'zd-revealed' : undefined} opacity={revealed ? 1 : 0.16}>
-        {t.plaque > 0.02 && (
-          <g opacity={Math.min(1, t.plaque * 0.9 + 0.1)}>
-            <path d={path} fill="#c9a44a" opacity="0.75" />
-            <circle cx={w * 0.32} cy={crownY} r={w * 0.08} fill="#8a6a1e" opacity="0.8" />
-            <circle cx={w * 0.62} cy={crownY - h * 0.12} r={w * 0.06} fill="#8a6a1e" opacity="0.8" />
-          </g>
-        )}
-
-        {t.cavity === 'hole' && (
-          <g>
-            <ellipse cx={w * 0.5} cy={crownY} rx={w * 0.2} ry={w * 0.16} fill="#3a2414" />
-            <ellipse cx={w * 0.58} cy={crownY - h * 0.05} rx={w * 0.1} ry={w * 0.08} fill="#3a2414" />
-            <g stroke="#3a2414" strokeWidth="1.3" strokeLinecap="round">
-              <line x1={w * 0.3} y1={crownY - h * 0.12} x2={w * 0.4} y2={crownY - h * 0.04} />
-              <line x1={w * 0.72} y1={crownY + h * 0.1} x2={w * 0.62} y2={crownY + h * 0.04} />
-            </g>
-          </g>
-        )}
-        {t.cavity === 'drilled' && (
-          <ellipse cx={w * 0.5} cy={crownY} rx={w * 0.18} ry={w * 0.14} fill="#caa98a" stroke="#a3815f" strokeWidth="1.5" />
-        )}
-        {t.cavity === 'filled' && (
-          <g>
-            <ellipse cx={w * 0.5} cy={crownY} rx={w * 0.18} ry={w * 0.14} fill="#dbe7f0" stroke="#9fb4c4" strokeWidth="1.5" />
-            <path d={`M${w * 0.42},${crownY - w * 0.06} l${w * 0.07},${-w * 0.05}`} stroke="#fff" strokeWidth="2" strokeLinecap="round" />
-          </g>
-        )}
-
-        {t.chip !== 'none' && t.chipShape && (
-          <g>
+        {/* problem overlays in upright local coords, dimmed until revealed */}
+        {t.chip !== 'none' && t.chip !== 'repaired' && t.chipShape && (
+          <g opacity={dim} className={revealed ? 'zd-revealed' : undefined}>
             <path
               d={chipNotchPath(t.chipShape, w, h, dir)}
-              fill={t.chip === 'repaired' ? '#ffffff' : '#7a1f2b'}
-              stroke={t.chip === 'repaired' ? '#bcd2e0' : INK}
-              strokeWidth={t.chip === 'repaired' ? 1.4 : 2}
+              fill="#7a1f2b"
+              stroke={INK}
+              strokeWidth="2"
               strokeLinejoin="round"
             />
-            {t.chip === 'broken' && (
-              <g stroke={INK} strokeWidth="1.3" strokeLinecap="round">
-                <line x1={w * 0.42} y1={dir === 'up' ? h * 0.12 : h * 0.88} x2={w * 0.34} y2={dir === 'up' ? h * 0.28 : h * 0.72} />
-                <line x1={w * 0.5} y1={dir === 'up' ? h * 0.3 : h * 0.7} x2={w * 0.42} y2={dir === 'up' ? h * 0.44 : h * 0.56} />
-              </g>
-            )}
-          </g>
-        )}
-
-        {t.debris && (
-          <g transform={`translate(${w * 0.5},${crownY})`}>
-            <DebrisSprite kind={t.debris} s={w * 0.32} />
           </g>
         )}
 
         {t.germ && (
-          <g transform={`translate(${w * 0.5},${dir === 'up' ? -w * 0.18 : h + w * 0.18})`}>
-            <Germ s={w * 0.3} wiggling={false} />
+          <g
+            transform={`translate(${w * 0.5},${crownY})`}
+            opacity={dim}
+            className={revealed ? 'zd-revealed' : undefined}
+          >
+            <g className="zd-germ">
+              <image
+                href={EFFECT_ART.germGreen}
+                x={-w * 0.42}
+                y={-w * 0.42}
+                width={w * 0.84}
+                height={w * 0.84}
+                preserveAspectRatio="xMidYMid meet"
+              />
+            </g>
+          </g>
+        )}
+
+        {t.debris && (
+          <g
+            transform={`translate(${w * 0.5},${crownY})`}
+            opacity={dim}
+            className={revealed ? 'zd-revealed' : undefined}
+          >
+            <DebrisSprite kind={t.debris} s={w * 0.32} />
+          </g>
+        )}
+
+        {t.sparkle && (
+          <g transform={`translate(${w * 0.5},${crownY})`}>
+            <g className="zd-spark">
+              <image
+                href={EFFECT_ART.sparkle}
+                x={-w * 0.5}
+                y={-w * 0.5}
+                width={w}
+                height={w}
+                preserveAspectRatio="xMidYMid meet"
+              />
+            </g>
           </g>
         )}
       </g>
-
-      {isImplant && (
-        <path d={`M${w * 0.26},${crownY - h * 0.2} l${w * 0.1},${-w * 0.12}`} stroke="#bfe3ff" strokeWidth="2.4" strokeLinecap="round" />
-      )}
-
-      {t.sparkle && (
-        <g transform={`translate(${w * 0.5},${crownY})`}>
-          <g className="zd-spark">
-            <path
-              d={`M0,${-w * 0.42} L${w * 0.1},${-w * 0.1} L${w * 0.42},0 L${w * 0.1},${w * 0.1} L0,${w * 0.42} L${-w * 0.1},${w * 0.1} L${-w * 0.42},0 L${-w * 0.1},${-w * 0.1} Z`}
-              fill="#ffe066"
-              stroke="#fff"
-              strokeWidth="1"
-            />
-          </g>
-        </g>
-      )}
-    </g>
     </g>
   );
 }
