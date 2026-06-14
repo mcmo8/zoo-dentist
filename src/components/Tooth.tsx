@@ -26,7 +26,7 @@ const INK = '#1d3557';
    Two things stay procedural (no art equivalent): the chip NOTCH (its shape must match
    the tray puzzle piece) and the DebrisSprite food shapes. */
 
-function DebrisSprite({ kind, s }: { kind: DebrisKind; s: number }) {
+export function DebrisSprite({ kind, s }: { kind: DebrisKind; s: number }) {
   switch (kind) {
     case 'candy':
       return (

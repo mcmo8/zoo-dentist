@@ -6,17 +6,21 @@ and seeds a free-play save so every animal can be opened directly, then plays ea
 its celebration.
 
 Step 4 made tools PROGRESSIVE (a per-tooth work meter fills only while the tool tip is
-held on a target; the tip sits ~56px above the cursor — TOOL_TIP_DY). So the driver
-HOLDS/wiggles the tool on each highlighted target ([data-tooth]:has(.zd-target)) until
-it clears, sweeps the mouth for whole-mouth steps (look/rinse), and tries each tray
-piece for the chip puzzle. Reports COMPLETE/INCOMPLETE per patient + any console error.
+held on a target; the tip sits ~92px above the cursor, TOOL_TIP_DY). Held tools now
+take 3.5s/tooth. Tweezers became grab -> carry -> drop-in-the-dish: the driver grabs a
+debris tooth (tip on it), drags to the dish (scene ~310,378), and releases to deposit.
+So the driver HOLDS/wiggles meter tools on each highlighted target until it clears,
+sweeps the mouth for whole-mouth steps (look/rinse), carries debris to the dish for the
+tweezers step, and tries each tray piece for the chip puzzle. Reports COMPLETE/INCOMPLETE
+per patient + any console error.
 """
 import sys
 import time
 from playwright.sync_api import sync_playwright
 
 VB_W, VB_H, TRAY_Y = 360, 560, 500
-TIP_DY = 56  # cursor sits this far below the contact point (tool acts at cursor - 56)
+TIP_DY = 92  # cursor sits this far below the contact point (tool acts at cursor - 92)
+DISH_CX, DISH_CY = 310, 378  # discard-dish center (scene coords) for the tweezers drop
 # The lobby seats 4 of 6 and rotates the dual-candidate chairs by visit parity:
 # even -> bunny/monkey/hippo/lion ; odd -> croc/monkey/hippo/elephant. Pick a
 # totalVisits parity that seats each target, then tap its seat by aria-label.
@@ -44,6 +48,36 @@ def label_text(label):
     except Exception:
         return ''
 
+def work_tweezers(pg, label, cur, box):
+    """Tweezers grab-carry-drop: for each debris tooth, press the tray tweezers, drag so
+    the tip lands on the tooth (grab), drag to the dish, release (deposit). The step only
+    completes once every debris tooth is deposited, so loop until the label changes."""
+    t0 = time.time()
+    while label_text(label) == cur and time.time() - t0 < 22:
+        tg = pg.locator('[data-tooth]:has(.zd-target)')
+        if tg.count() == 0:
+            # all debris deposited - wait out the ~750ms step-advance transition
+            t1 = time.time()
+            while label_text(label) == cur and time.time() - t1 < 1.5:
+                pg.wait_for_timeout(100)
+            break
+        tb = tg.first.bounding_box()
+        bn = pg.locator('.zd-bounce').first
+        if not tb or bn.count() == 0:
+            break
+        cx, cy = tb['x'] + tb['width'] / 2, tb['y'] + tb['height'] / 2
+        bb = bn.bounding_box()
+        pg.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
+        pg.mouse.down()
+        pg.mouse.move(cx, cy + TIP_DY, steps=8)  # tip onto the tooth -> grab
+        pg.wait_for_timeout(160)
+        dx, dy = svg_to_px(box, DISH_CX, DISH_CY + TIP_DY)  # tip into the dish
+        pg.mouse.move(dx, dy, steps=10)
+        pg.wait_for_timeout(160)
+        pg.mouse.up()  # release -> deposit
+        pg.wait_for_timeout(360)
+
+
 def work_targets(pg, label, cur, box):
     """Tool held down: hold/wiggle on each highlighted target until the step changes."""
     bn = pg.locator('.zd-bounce').first
@@ -53,7 +87,7 @@ def work_targets(pg, label, cur, box):
     pg.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
     pg.mouse.down()
     t0 = time.time()
-    while label_text(label) == cur and time.time() - t0 < 8:
+    while label_text(label) == cur and time.time() - t0 < 22:
         tg = pg.locator('[data-tooth]:has(.zd-target)')
         n = tg.count()
         if n > 0:
@@ -61,7 +95,7 @@ def work_targets(pg, label, cur, box):
             if not tb:
                 break
             cx, cy = tb['x'] + tb['width'] / 2, tb['y'] + tb['height'] / 2
-            for k in range(26):  # hold ~2s, small wiggle keeps contact on the tooth
+            for k in range(50):  # hold ~4s (>3.5s clear), small wiggle keeps contact
                 pg.mouse.move(cx + ((k % 3) - 1) * 3, cy + TIP_DY)
                 pg.wait_for_timeout(80)
                 if label_text(label) != cur:
@@ -121,6 +155,8 @@ def play_visit(pg):
         box = svg.bounding_box()
         if 'piece' in cur.lower():
             work_puzzle(pg, label, cur, box)
+        elif 'food' in cur.lower():  # tweezers step ("Pick out the food!")
+            work_tweezers(pg, label, cur, box)
         else:
             work_targets(pg, label, cur, box)
         if label.count() == 0:

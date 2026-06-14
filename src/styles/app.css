@@ -437,6 +437,38 @@
   transform-origin: center;
 }
 
+/* star burst - a 20-star pop on every problem-clear (imperative SVG polygons, own
+   layer/pool in Treatment.tsx). --dx/--dy/--rot are set per star. */
+.zd-starburst {
+  animation: zd-starpop 0.8s ease-out both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* the debris gripped by the tweezers while carried to the discard tray */
+.zd-carrywiggle {
+  animation: zd-carrywig 0.22s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* discard tray slide-in. Outer group does the slide (CSS transform translate); the
+   inner group does the carry-time pulse, so the two transforms never collide. */
+.zd-tray {
+  transition: transform 0.35s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+.zd-tray-out {
+  transform: translateX(116px);
+}
+.zd-tray-in {
+  transform: translateX(0);
+}
+.zd-tray-pulse {
+  animation: zd-traypulse 0.9s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 /* ---------- keyframes ---------- */
 
 @keyframes zd-breathe {
@@ -521,4 +553,21 @@
 @keyframes zd-wavearm {
   0%, 100% { transform: rotate(0deg); }
   50% { transform: rotate(14deg); }
+}
+@keyframes zd-starpop {
+  0% { transform: translate(0, 0) scale(0.3) rotate(0deg); opacity: 1; }
+  60% { opacity: 1; }
+  100% {
+    transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(1) rotate(var(--rot, 0deg));
+    opacity: 0;
+  }
+}
+@keyframes zd-carrywig {
+  0% { transform: translateY(0) rotate(-7deg); }
+  50% { transform: translateY(-2px) rotate(7deg); }
+  100% { transform: translateY(0) rotate(-7deg); }
+}
+@keyframes zd-traypulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
 }

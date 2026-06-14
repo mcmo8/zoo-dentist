@@ -7,6 +7,7 @@ import {
 } from 'react';
 import type {
   AnimalSpec,
+  DebrisKind,
   PuzzleShape,
   ToolId,
   ToothState,
@@ -16,6 +17,7 @@ import { initTeeth, stepDone, toothDoneForTool, toothHealthy } from '../game/eng
 import { computeToothLayout, Mouth, MOUTH_CX, MOUTH_CY, MOUTH_RX, MOUTH_RY } from './Mouth';
 import { AnimalFace, type Expression } from './AnimalFace';
 import { ToolSprite, PuzzlePiece } from './tools';
+import { DebrisSprite } from './Tooth';
 import { TOOTH_ART, BACKGROUNDS } from '../game/assets';
 import { buzz } from '../lib/haptics';
 import * as sfx from '../lib/sfx';
@@ -24,11 +26,46 @@ const VB_W = 360;
 const VB_H = 560;
 const TRAY_Y = 500;
 
-/* The dragged tool sprite is drawn at translate(x, y-34) scale(1.25) with the tool
-   art's WORKING END at the top of the sprite, so the part that visually touches a
-   tooth sits ~56px ABOVE the cursor. Hit-test at that contact point so the tool
-   acts (and the tooth flares) exactly where the tip looks like it's touching. */
-const TOOL_TIP_DY = -56;
+/* The picked-up tool is drawn ~2x its resting tray size, with the tool art's WORKING
+   END at the top of the sprite. TOOL_SCALE enlarges it; TOOL_CENTER_DY lifts the
+   sprite center above the cursor so the FINGER sits ~6px below the tool's painted
+   bottom (never hidden under the thumb); TOOL_TIP_DY is the contact point (the working
+   tip), a few px above the visible top. Hit-test at TOOL_TIP_DY so the tool acts (and
+   the tooth flares) exactly where the tip looks like it's touching. The puzzle piece
+   reuses TOOL_SCALE but stays nearer the finger (PIECE_CENTER_DY), since its snap is on
+   the cursor, not the tip. These are empirical (the sprite art has transparent
+   padding): on device, raise the tool (more-negative CENTER) and lower the tip number
+   by the same amount until the cursor sits just under the painted bottom. */
+const TOOL_SCALE = 2.0; // was 1.25
+const TOOL_CENTER_DY = -54; // sprite-center offset above cursor (was -34)
+const TOOL_TIP_DY = -92; // contact/working-tip point above cursor (was -56)
+const PIECE_CENTER_DY = -34; // puzzle piece sits nearer the finger (snap is on cursor)
+
+/* Discard tray (kidney dish) for the tweezers grab-carry-drop flow. Slides in from
+   the right only during the tweezers step. Deposit fires when the tool TIP lands in
+   DISH_HIT (padded generously for little fingers). */
+const DISH_X = 262;
+const DISH_Y = 326;
+const DISH_W = 96;
+const DISH_H = 104;
+const DISH_CX = DISH_X + DISH_W / 2; // 310
+const DISH_CY = DISH_Y + DISH_H / 2; // 378
+const DISH_HIT = { x0: 250, x1: 360, y0: 312, y1: 446 };
+
+/* Star burst (a satisfying pop on every problem-clear). Its own small node pool kept
+   off the work-particle FX_CAP; brief nodes, no filters (old-Android budget). */
+const STAR_CAP = 24;
+const STAR_COLORS = ['#ff7bac', '#ffe066', '#6fc9ec', '#9be37c', '#cba8f5', '#ff9f5a'];
+function starPoints(R: number): string {
+  const r = R * 0.45;
+  let p = '';
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? R : r;
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    p += `${(Math.cos(a) * rad).toFixed(1)},${(Math.sin(a) * rad).toFixed(1)} `;
+  }
+  return p.trim();
+}
 
 /* ---- Step 4: progressive tool work ----
    A tool never clears a problem instantly. While its tip is held/scrubbed over a
@@ -53,14 +90,17 @@ interface ToolFeel {
   wince?: boolean; // patient winces while working
 }
 
-/** Per-tool tunable feel. Durations, particle kind/rate, and vibrate patterns. */
+/** Per-tool tunable feel. Durations, particle kind/rate, and vibrate patterns.
+ *  Continuous (held) tools now take 3.5s per tooth so cleaning feels like real work;
+ *  the meter runs ~41 ticks, so fxEvery is 2 to hold the same particle density (and
+ *  the old-Android budget). `tweezers` is intentionally absent: it left the work-meter
+ *  system for a grab -> carry -> drop-in-tray interaction (see the tweezers helpers). */
 const TOOL_FEEL: Partial<Record<ToolId, ToolFeel>> = {
-  tweezers: { ms: 520, particle: 'pop', fxEvery: 1, vibTick: 12, vibDone: 30 },
-  brush: { ms: 820, particle: 'bubble', fxEvery: 1, vibTick: 15, vibDone: 25 },
-  germspray: { ms: 640, particle: 'poof', fxEvery: 1, vibTick: 14, vibDone: 25 },
-  drill: { ms: 1000, particle: ['spark', 'debris'], fxEvery: 1, vibTick: [12, 8], vibDone: 40, judder: true, wince: true },
-  filler: { ms: 720, particle: 'gloop', fxEvery: 1, vibTick: 12, vibDone: 35 },
-  forceps: { ms: 1100, particle: ['spark', 'debris'], fxEvery: 1, vibTick: [10, 10], vibDone: 40, judder: true, wince: true },
+  brush: { ms: 3500, particle: 'bubble', fxEvery: 2, vibTick: 15, vibDone: 25 },
+  germspray: { ms: 3500, particle: 'poof', fxEvery: 2, vibTick: 14, vibDone: 25 },
+  drill: { ms: 3500, particle: ['spark', 'debris'], fxEvery: 2, vibTick: [12, 8], vibDone: 40, judder: true, wince: true },
+  filler: { ms: 3500, particle: 'gloop', fxEvery: 2, vibTick: 12, vibDone: 35 },
+  forceps: { ms: 3500, particle: ['spark', 'debris'], fxEvery: 2, vibTick: [10, 10], vibDone: 40, judder: true, wince: true },
 };
 
 type DragKind =
@@ -98,11 +138,18 @@ export function Treatment({
   const [doneSteps, setDoneSteps] = useState(0);
   // tooth under the tool tip + a valid target — flares immediately on hover.
   const [contactTooth, setContactTooth] = useState<number | null>(null);
+  // debris currently gripped by the tweezers (drives the carried sprite render).
+  const [carry, setCarry] = useState<{ toothIndex: number; kind: DebrisKind } | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const dragGRef = useRef<SVGGElement>(null);
+  const carryGRef = useRef<SVGGElement>(null);
+  const carryingRef = useRef<{ toothIndex: number; kind: DebrisKind } | null>(null);
   const fxLayerRef = useRef<SVGGElement>(null);
   const fxNodesRef = useRef<SVGGElement[]>([]);
+  const starLayerRef = useRef<SVGGElement>(null);
+  const starNodesRef = useRef<SVGGElement[]>([]);
+  const reducedMotionRef = useRef(false);
   const teethRef = useRef(teeth);
   const draggingRef = useRef<DragKind>(null);
   const lastPtRef = useRef({ x: 0, y: 0 });
@@ -122,6 +169,10 @@ export function Treatment({
   useEffect(() => {
     revealedRef.current = revealed;
   }, [revealed]);
+  useEffect(() => {
+    reducedMotionRef.current =
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  }, []);
 
   const step = steps[stepIndex];
 
@@ -336,6 +387,39 @@ export function Treatment({
     else spawnFx(particle, x, y);
   }
 
+  /** A 20-star pop radiating from (cx,cy): the reward on every problem-clear. Lives in
+   *  its own top layer + node pool so it always shows above the scene and never starves
+   *  the work particles. Skipped under prefers-reduced-motion. */
+  function spawnStarBurst(cx: number, cy: number) {
+    if (reducedMotionRef.current) return;
+    const layer = starLayerRef.current;
+    if (!layer) return;
+    const n = 20;
+    for (let k = 0; k < n; k++) {
+      while (starNodesRef.current.length >= STAR_CAP) starNodesRef.current.shift()?.remove();
+      const ang = (k / n) * Math.PI * 2 + Math.random() * 0.3;
+      const dist = 55 + Math.random() * 60; // 55..115
+      const wrap = document.createElementNS(SVGNS, 'g');
+      wrap.setAttribute('transform', `translate(${cx.toFixed(1)},${cy.toFixed(1)})`);
+      wrap.setAttribute('pointer-events', 'none');
+      const star = document.createElementNS(SVGNS, 'polygon');
+      star.setAttribute('points', starPoints(7 + Math.random() * 5));
+      star.setAttribute('fill', STAR_COLORS[k % STAR_COLORS.length]);
+      star.style.setProperty('--dx', `${(Math.cos(ang) * dist).toFixed(0)}px`);
+      star.style.setProperty('--dy', `${(Math.sin(ang) * dist).toFixed(0)}px`);
+      star.style.setProperty('--rot', `${(Math.random() * 120 - 60).toFixed(0)}deg`);
+      star.setAttribute('class', 'zd-fx zd-starburst');
+      wrap.appendChild(star);
+      layer.appendChild(wrap);
+      starNodesRef.current.push(wrap);
+      window.setTimeout(() => {
+        wrap.remove();
+        const idx = starNodesRef.current.indexOf(wrap);
+        if (idx >= 0) starNodesRef.current.splice(idx, 1);
+      }, 820);
+    }
+  }
+
   /* ---------- imperative tooth feedback (fade overlay / judder) ---------- */
 
   function problemEl(i: number): SVGGElement | null {
@@ -428,10 +512,16 @@ export function Treatment({
           });
           sfx.ding();
           buzz(25);
-          spawnFx('pop', p.cx, p.cy);
+          spawnStarBurst(p.cx, p.cy);
           endDrag();
         }
       }
+      return;
+    }
+
+    // tweezers: grab -> carry -> drop in the tray (no work meter)
+    if (step.tool === 'tweezers') {
+      tweezersHandle(rawX, rawY);
       return;
     }
 
@@ -455,12 +545,77 @@ export function Treatment({
         });
         sfx.ding();
         buzz(25);
-        spawnFx('pop', p.cx, p.cy);
+        spawnStarBurst(p.cx, p.cy);
         endDrag();
       }
       return;
     }
-    // brush / tweezers / germspray / drill / filler / forceps fill their meter in the tick
+    // brush / germspray / drill / filler / forceps fill their meter in the tick
+  }
+
+  /* ---------- tweezers: grab, carry, drop into the discard tray ---------- */
+
+  function positionCarry(rawX: number, rawY: number) {
+    const g = carryGRef.current;
+    if (g) {
+      g.setAttribute(
+        'transform',
+        `translate(${rawX.toFixed(1)},${(rawY + TOOL_TIP_DY + 8).toFixed(1)})`
+      );
+    }
+  }
+
+  /** Lift the debris off a tooth onto the tweezers tip. The tooth is NOT cleared yet
+   *  (its overlay is just hidden), so the step only completes once the food reaches
+   *  the tray (deposit calls applyWork). */
+  function startCarry(i: number, rawX: number, rawY: number) {
+    const kind = teethRef.current[i]?.debris;
+    if (!kind) return;
+    carryingRef.current = { toothIndex: i, kind };
+    setCarry({ toothIndex: i, kind });
+    fadeProblem(i, 0); // hide the debris overlay while it's carried
+    setContact(null);
+    positionCarry(rawX, rawY);
+    const g = carryGRef.current;
+    if (g) {
+      g.style.display = 'block';
+      g.style.opacity = '1';
+    }
+    sfx.pop();
+    buzz(12);
+  }
+
+  /** Drop into the dish: clear the tooth, pop the stars, success cue. */
+  function depositCarry(i: number) {
+    carryingRef.current = null;
+    const g = carryGRef.current;
+    if (g) g.style.display = 'none';
+    setCarry(null);
+    applyWork('tweezers', i, false); // clears debris; star burst fires at the dish instead
+    spawnStarBurst(DISH_CX, DISH_CY);
+    sfx.ding();
+    buzz([15, 40, 15]);
+  }
+
+  /** Released anywhere but the dish: the food goes back in the mouth, nothing lost. */
+  function returnCarry(i: number) {
+    carryingRef.current = null;
+    const g = carryGRef.current;
+    if (g) g.style.display = 'none';
+    setCarry(null);
+    clearFade(i); // restore the debris overlay
+    sfx.uhoh();
+    buzz(8);
+  }
+
+  function tweezersHandle(rawX: number, rawY: number) {
+    if (carryingRef.current) {
+      positionCarry(rawX, rawY);
+      return;
+    }
+    const over = toothAt(rawX, rawY + TOOL_TIP_DY);
+    if (over !== null && isLiveTarget(over)) startCarry(over, rawX, rawY);
+    else setContact(null);
   }
 
   /** ~85ms loop while a tool is held: fills the work meter (refs only), fades the
@@ -471,6 +626,13 @@ export function Treatment({
     const x = lastPtRef.current.x;
     const y = lastPtRef.current.y + TOOL_TIP_DY;
     tickCountRef.current++;
+
+    // tweezers grab/carry runs off pointer moves; the tick keeps it alive if the
+    // finger is held still on a debris tooth (grab) without moving.
+    if (step.tool === 'tweezers') {
+      tweezersHandle(lastPtRef.current.x, lastPtRef.current.y);
+      return;
+    }
 
     const over = toothAt(x, y);
     setContact(over !== null && isLiveTarget(over) ? over : null);
@@ -535,7 +697,7 @@ export function Treatment({
     } as Partial<Record<ToolId, () => void>>)[tool]?.();
   }
 
-  function applyWork(tool: ToolId, i: number) {
+  function applyWork(tool: ToolId, i: number, burst = true) {
     switch (tool) {
       case 'tweezers':
         updateTooth(i, (t) => {
@@ -571,6 +733,8 @@ export function Treatment({
         spawnFx('toothfly', layout[i].cx, layout[i].cy);
         break;
     }
+    // a star pop on every problem-clear (tweezers fires its own at the dish instead).
+    if (burst) spawnStarBurst(layout[i].cx, layout[i].cy);
   }
 
   /* ---------- drag lifecycle ---------- */
@@ -604,7 +768,8 @@ export function Treatment({
     const g = dragGRef.current;
     if (g) {
       g.style.display = 'block';
-      g.setAttribute('transform', `translate(${x},${y - 34}) scale(1.25)`);
+      const cy = draggingRef.current?.kind === 'piece' ? PIECE_CENTER_DY : TOOL_CENTER_DY;
+      g.setAttribute('transform', `translate(${x},${y + cy}) scale(${TOOL_SCALE})`);
     }
   }
 
@@ -677,6 +842,18 @@ export function Treatment({
   function onPointerUp() {
     lastActRef.current = Date.now();
     const dragKind = draggingRef.current;
+
+    // tweezers: release decides deposit (tip in the dish) vs return to the mouth.
+    const carrying = carryingRef.current;
+    if (carrying) {
+      const tipX = lastPtRef.current.x;
+      const tipY = lastPtRef.current.y + TOOL_TIP_DY;
+      const overDish =
+        tipX >= DISH_HIT.x0 && tipX <= DISH_HIT.x1 && tipY >= DISH_HIT.y0 && tipY <= DISH_HIT.y1;
+      if (overDish) depositCarry(carrying.toothIndex);
+      else returnCarry(carrying.toothIndex);
+    }
+
     if (dragKind?.kind === 'piece' && step) {
       const target = step.targets.find((i) => teethRef.current[i].chip === 'smoothed');
       if (target !== undefined) {
@@ -833,6 +1010,33 @@ export function Treatment({
         {/* imperative particle layer (work bubbles/sparks/debris/etc.) */}
         <g ref={fxLayerRef} pointerEvents="none" />
 
+        {/* discard dish - slides in from the right during the tweezers step; the inner
+            group pulses while carrying so the drop target reads. Drawn inline (the
+            props/tray.webp art is the rolling cart, already in the background). */}
+        <g
+          data-dish
+          className={step?.tool === 'tweezers' ? 'zd-tray zd-tray-in' : 'zd-tray zd-tray-out'}
+          pointerEvents="none"
+        >
+          <g className={carry ? 'zd-tray-pulse' : undefined}>
+            {/* down chevron: "drop the food here" cue (pre-reader friendly) */}
+            <path
+              d={`M${DISH_CX - 11},${DISH_Y + 4} L${DISH_CX},${DISH_Y + 17} L${DISH_CX + 11},${DISH_Y + 4}`}
+              fill="none"
+              stroke="#1d3557"
+              strokeWidth="3.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity="0.8"
+            />
+            {/* kidney dish: outer rim + recessed basin */}
+            <ellipse cx={DISH_CX} cy={DISH_CY + 10} rx="50" ry="33" fill="#e2ecf1" stroke="#1d3557" strokeWidth="3.5" />
+            <ellipse cx={DISH_CX} cy={DISH_CY + 4} rx="40" ry="23" fill="#aebfca" stroke="#1d3557" strokeWidth="2" />
+            <ellipse cx={DISH_CX} cy={DISH_CY} rx="40" ry="20" fill="#c9d8e0" />
+            <ellipse cx={DISH_CX - 13} cy={DISH_CY - 4} rx="11" ry="5" fill="#eef4f7" opacity="0.7" />
+          </g>
+        </g>
+
         {/* tool tray */}
         <rect x="8" y={TRAY_Y - 44} width={VB_W - 16} height="96" rx="20" fill="#fff" stroke="#1d3557" strokeWidth="3" />
         {trayItems.map((item) => {
@@ -870,6 +1074,16 @@ export function Treatment({
           </g>
         )}
 
+        {/* carried debris (tweezers) - moved imperatively to the tool tip; rendered
+            below the tool so the tweezers tips appear to grip it. */}
+        <g ref={carryGRef} data-carry style={{ display: 'none', pointerEvents: 'none' }}>
+          {carry && (
+            <g className="zd-carrywiggle">
+              <DebrisSprite kind={carry.kind} s={22} />
+            </g>
+          )}
+        </g>
+
         {/* dragged tool sprite (moved imperatively) */}
         <g ref={dragGRef} style={{ display: 'none', pointerEvents: 'none' }}>
           {drag?.kind === 'piece' ? (
@@ -878,6 +1092,9 @@ export function Treatment({
             step && step.tool !== 'puzzle' && <ToolSprite tool={step.tool} />
           )}
         </g>
+
+        {/* star bursts - topmost so the celebration pops above everything */}
+        <g ref={starLayerRef} pointerEvents="none" />
       </svg>
     </div>
   );

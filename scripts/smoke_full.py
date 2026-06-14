@@ -7,10 +7,11 @@ process (environmental, not a game bug). scripts/smoke_each.py reloads a fresh b
 per patient and is the RELIABLE per-patient proxy + the authoritative check; prefer it.
 
 Step 4 made tools PROGRESSIVE (a per-tooth work meter fills only while the tool tip,
-~56px above the cursor, is held on a target). So this HOLDS/wiggles the tool on each
+~92px above the cursor, is held on a target; held tools take 3.5s/tooth). Tweezers
+became grab -> carry -> drop-in-the-dish. So this HOLDS/wiggles meter tools on each
 highlighted target ([data-tooth]:has(.zd-target)) until it clears, sweeps the mouth for
-whole-mouth steps, and tries each tray piece for the chip puzzle — same driver as
-smoke_each.py.
+whole-mouth steps, carries debris to the dish for the tweezers step, and tries each tray
+piece for the chip puzzle, same driver as smoke_each.py.
 """
 import os
 import time
@@ -20,7 +21,8 @@ OUT = os.path.join(os.path.dirname(__file__), '..', '.smoke')
 os.makedirs(OUT, exist_ok=True)
 
 VB_W, VB_H, TRAY_Y = 360, 560, 500
-TIP_DY = 56  # cursor sits this far below the contact point (tool acts at cursor - 56)
+TIP_DY = 92  # cursor sits this far below the contact point (tool acts at cursor - 92)
+DISH_CX, DISH_CY = 310, 378  # discard-dish center (scene coords) for the tweezers drop
 errors = []
 
 
@@ -43,6 +45,33 @@ def label_text(label):
         return ''
 
 
+def work_tweezers(pg, label, cur, box):
+    t0 = time.time()
+    while label_text(label) == cur and time.time() - t0 < 22:
+        tg = pg.locator('[data-tooth]:has(.zd-target)')
+        if tg.count() == 0:
+            # all debris deposited - wait out the ~750ms step-advance transition
+            t1 = time.time()
+            while label_text(label) == cur and time.time() - t1 < 1.5:
+                pg.wait_for_timeout(100)
+            break
+        tb = tg.first.bounding_box()
+        bn = pg.locator('.zd-bounce').first
+        if not tb or bn.count() == 0:
+            break
+        cx, cy = tb['x'] + tb['width'] / 2, tb['y'] + tb['height'] / 2
+        bb = bn.bounding_box()
+        pg.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
+        pg.mouse.down()
+        pg.mouse.move(cx, cy + TIP_DY, steps=8)  # tip onto the tooth -> grab
+        pg.wait_for_timeout(160)
+        dx, dy = svg_to_px(box, DISH_CX, DISH_CY + TIP_DY)  # tip into the dish
+        pg.mouse.move(dx, dy, steps=10)
+        pg.wait_for_timeout(160)
+        pg.mouse.up()  # release -> deposit
+        pg.wait_for_timeout(360)
+
+
 def work_targets(pg, label, cur, box):
     bn = pg.locator('.zd-bounce').first
     if bn.count() == 0:
@@ -51,7 +80,7 @@ def work_targets(pg, label, cur, box):
     pg.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
     pg.mouse.down()
     t0 = time.time()
-    while label_text(label) == cur and time.time() - t0 < 8:
+    while label_text(label) == cur and time.time() - t0 < 22:
         tg = pg.locator('[data-tooth]:has(.zd-target)')
         n = tg.count()
         if n > 0:
@@ -59,7 +88,7 @@ def work_targets(pg, label, cur, box):
             if not tb:
                 break
             cx, cy = tb['x'] + tb['width'] / 2, tb['y'] + tb['height'] / 2
-            for k in range(26):
+            for k in range(50):
                 pg.mouse.move(cx + ((k % 3) - 1) * 3, cy + TIP_DY)
                 pg.wait_for_timeout(80)
                 if label_text(label) != cur:
@@ -116,6 +145,8 @@ def run_visit(pg, svg, label, visit_no):
         box = svg.bounding_box()
         if 'piece' in cur.lower():
             work_puzzle(pg, label, cur, box)
+        elif 'food' in cur.lower():  # tweezers step ("Pick out the food!")
+            work_tweezers(pg, label, cur, box)
         else:
             work_targets(pg, label, cur, box)
         if label_text(label) == cur:
