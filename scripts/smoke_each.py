@@ -22,10 +22,15 @@ def svg_to_px(box, x, y):
     return (box['x'] + (box['width'] - VB_W * s) / 2 + x * s,
             box['y'] + (box['height'] - VB_H * s) / 2 + y * s)
 
+# Tools act at the bristle/tip, ~56px ABOVE the cursor (TOOL_TIP_DY in Treatment.tsx),
+# so to land a tool on a tooth the cursor must sit that far below the contact point.
+TIP_DY = 56
+
 def sweep(page, box):
-    for gy in range(165, 360, 36):
-        for gx in range(55, 320, 42):
-            px, py = svg_to_px(box, gx, gy)
+    # sweep the CONTACT point across the teeth + mouth band (scene y ~150-320)
+    for cy in range(150, 320, 26):
+        for cx in range(60, 305, 40):
+            px, py = svg_to_px(box, cx, cy + TIP_DY)
             page.mouse.move(px, py, steps=2); page.wait_for_timeout(55)
 
 def play_visit(page):

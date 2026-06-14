@@ -136,6 +136,13 @@ export const TOOTH_ART = {
 } as const;
 export type ToothArtId = keyof typeof TOOTH_ART;
 
+/* The universal open-mouth is NOT a raster import: it is vendored as inline vector
+   in src/components/mouthArt.tsx (from the artist's layered SVG), so the renderer can
+   sandwich the tooth sprites between the mouth interior and the gum ridges by z-order.
+   Being inline, it bundles into JS and precaches with it. The flat fallback
+   assets/mouth/open-mouth.webp is intentionally unused (the layered vector is preferred,
+   per the connector-art handoff). */
+
 /** Full-screen backdrops, one per screen. */
 export const BACKGROUNDS = {
   title: bgTitle,

@@ -1,14 +1,19 @@
 import type { AnimalSpec, MouthLayout } from './types';
 
-/* Original animal cast — colors + a SHARED mouth board. Per the R2 redesign the
-   mouth is one fixed generic open-mouth UI for every patient (6 upper + 6 lower
-   teeth); the patient's identity is the head/ears behind it. Difficulty now
-   comes from each animal's problem mix (see levels.ts), not the mouth shape.
-   The shape entries are all 'square' since the teeth render from art, not paths. */
+/* Original animal cast — colors + a SHARED mouth board. Per the R2/R3 redesign the
+   mouth is one fixed generic open-mouth UI for every patient; the patient's identity
+   is the head/ears behind it. Difficulty comes from each animal's problem mix (see
+   levels.ts), not the mouth shape. The shape entries are all 'square' since the teeth
+   render from art, not paths.
+
+   R3: 5 teeth per row (10 total), matching the locked layered-mouth layout in
+   assets/mouth-layout.json. The engine reads these counts dynamically (toothCount /
+   initTeeth / pickTeeth), so the count is the single knob that keeps the rendered
+   arch, the hit-test layout, and problem generation in lockstep. */
 
 const SMILE: MouthLayout = {
-  top: ['square', 'square', 'square', 'square', 'square', 'square'],
-  bottom: ['square', 'square', 'square', 'square', 'square', 'square'],
+  top: ['square', 'square', 'square', 'square', 'square'],
+  bottom: ['square', 'square', 'square', 'square', 'square'],
 };
 
 export const ANIMALS: AnimalSpec[] = [

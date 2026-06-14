@@ -4,3 +4,5 @@ dev-dist
 .env.local
 *.log
 .smoke
+.smoke_*
+images/

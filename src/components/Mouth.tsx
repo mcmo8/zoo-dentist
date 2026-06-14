@@ -1,56 +1,91 @@
 import type { AnimalSpec, ToothState } from '../game/types';
 import { Tooth, type ToothPlacement } from './Tooth';
+import { MouthBack, MouthGums, MOUTH_ART_VB } from './mouthArt';
 
-/* ONE fixed generic open-mouth board for every patient (R2 redesign). The animal
-   head sits behind it; this is a consistent UI smile, not each animal's real
-   mouth. A full upper + lower arch of snug teeth sits on the pink gums, with a
-   dark throat between and the tongue at the bottom. Scene coords (360x560 SVG),
-   mouth centered at (180, 262). */
+/* ONE fixed universal open-mouth for every patient (R3 redesign). The animal head
+   sits behind it; this is a consistent UI mouth, not each animal's real mouth.
 
+   The mouth is the artist's layered vector (see mouthArt.tsx), drawn in TWO passes
+   so the teeth sandwich between the mouth interior and the gum ridges:
+       MouthBack (interior+lips+throat+tongue)  <  teeth  <  MouthGums (ridges)
+   Because the gums paint last, a tooth root can never poke above the gum line.
+
+   Geometry is the LOCKED layout from assets/mouth-layout.json, tuned in
+   assets/mouth-tuner.html on a 360-wide stage (mouth box 331 wide, centered, top at
+   y=195 -> box center y≈360.5). The game scene is 360x560 with the tray at y=500, so
+   that locked geometry is mapped into the scene via two knobs only — MOUTH_W (scene
+   mouth width) and MOUTH_CY (scene mouth center y) — which preserves the locked SHAPE
+   and just places/scales it. Everything else flows from the JSON. */
+
+// ---- LOCKED layout (assets/mouth-layout.json — do not edit without re-tuning) ----
+const TUNER_MW = 331; // mouth box width on the tuner stage
+const TUNER_CX = 180; // stage center x (teeth centered on the stage)
+const TUNER_CY_MID = 195 + TUNER_MW / 2; // mouthY + half -> box center y ≈ 360.5
+const UPPER_Y = 311;
+const UPPER_CURVE = -12;
+const LOWER_Y = 402;
+const LOWER_CURVE = 26;
+const TOOTH = 60;
+const SPAN = 0.62;
+
+// ---- scene placement knobs (the two values to nudge if the fit needs it) ----
 export const MOUTH_CX = 180;
-export const MOUTH_CY = 262;
-export const MOUTH_RX = 150; // used by inMouth() for the whole-mouth rinse steps
-export const MOUTH_RY = 124;
+export const MOUTH_CY = 256; // scene y of the mouth center
+const MOUTH_W = 314; // scene width of the (square) mouth box
 
-// ---- teeth arch geometry ----
-const TOOTH_W = 52; // square sprite size (snug: content ~= SPACING)
-const SPACING = 42; // tooth center-to-center
-const UPPER_CY = 216; // upper row center y (crowns hang down)
-const LOWER_CY = 312; // lower row center y (crowns rise up)
-const ROW_CURVE = 9; // gentle smile arch (center teeth a touch lower)
+// whole-mouth ellipse used by inMouth() for the rinse/wash/look steps
+export const MOUTH_RX = MOUTH_W * 0.46;
+export const MOUTH_RY = MOUTH_W * 0.42;
+
+// tuner-stage -> scene mapping (single source: k, then translate to the scene center)
+const K = MOUTH_W / TUNER_MW;
+const mapX = (tx: number) => MOUTH_CX + K * (tx - TUNER_CX);
+const mapY = (ty: number) => MOUTH_CY + K * (ty - TUNER_CY_MID);
+
+// transform that drops the 1254-unit source SVG onto the scene mouth box
+const BOX_LEFT = MOUTH_CX - MOUTH_W / 2;
+const BOX_TOP = MOUTH_CY - MOUTH_W / 2;
+const SVG_SCALE = MOUTH_W / MOUTH_ART_VB;
+const MOUTH_ART_TRANSFORM = `translate(${BOX_LEFT},${BOX_TOP}) scale(${SVG_SCALE})`;
 
 function rowPlacements(
   n: number,
-  baseCy: number,
+  baseY: number,
+  curve: number,
   dir: 'down' | 'up',
   startIndex: number
 ): ToothPlacement[] {
   const out: ToothPlacement[] = [];
+  const half = (SPAN * TUNER_MW) / 2;
+  const w = K * TOOTH;
   for (let i = 0; i < n; i++) {
-    const t = n === 1 ? 0 : (i - (n - 1) / 2) / ((n - 1) / 2); // -1..1
-    const cx = MOUTH_CX + (i - (n - 1) / 2) * SPACING;
-    const cy = baseCy + ROW_CURVE * (1 - t * t); // center sits slightly lower
-    out.push({ index: startIndex + i, cx, cy, w: TOOTH_W, h: TOOTH_W, dir, shape: 'square' });
+    const tx = n === 1 ? TUNER_CX : TUNER_CX - half + ((2 * half) / (n - 1)) * i;
+    const norm = half === 0 ? 0 : (tx - TUNER_CX) / half;
+    const f = 1 - norm * norm; // 1 at center, 0 at the edges
+    const ty = baseY + curve * f;
+    out.push({
+      index: startIndex + i,
+      cx: mapX(tx),
+      cy: mapY(ty),
+      w,
+      h: w,
+      dir,
+      shape: 'square',
+    });
   }
   return out;
 }
 
 export function computeToothLayout(spec: AnimalSpec): ToothPlacement[] {
-  // The mouth is uniform (animals.ts SMILE), so this arch is identical for all
-  // patients; we still read the counts to stay in lockstep with the engine.
+  // counts come from the (uniform) spec so we stay in lockstep with the engine;
+  // the locked layout is 5 + 5.
   const nTop = spec.mouth.top.length;
   const nBot = spec.mouth.bottom.length;
   return [
-    ...rowPlacements(nTop, UPPER_CY, 'down', 0),
-    ...rowPlacements(nBot, LOWER_CY, 'up', nTop),
+    ...rowPlacements(nTop, UPPER_Y, UPPER_CURVE, 'down', 0),
+    ...rowPlacements(nBot, LOWER_Y, LOWER_CURVE, 'up', nTop),
   ];
 }
-
-// gum-line y where each row's roots tuck in (matches the tooth root edge)
-const UPPER_GUM = UPPER_CY - TOOTH_W / 2 + ROW_CURVE + 6; // ~ just over upper roots
-const LOWER_GUM = LOWER_CY + TOOTH_W / 2 - ROW_CURVE - 6; // ~ just under lower roots
-const GUM = '#e07d92';
-const GUM_DARK = '#c4566b';
 
 export function Mouth({
   spec,
@@ -69,78 +104,30 @@ export function Mouth({
   targetTeeth: Set<number>;
   stinkOpacity: number;
 }) {
-  void spec;
-  const L = MOUTH_CX - MOUTH_RX;
-  const R = MOUTH_CX + MOUTH_RX;
-  const TOP = MOUTH_CY - MOUTH_RY;
-  const BOT = MOUTH_CY + MOUTH_RY;
-  const clipId = 'zd-mouth-clip';
+  void spec; // mouth art is uniform; identity is the head behind it
 
   return (
     <g>
-      <defs>
-        <clipPath id={clipId}>
-          <ellipse cx={MOUTH_CX} cy={MOUTH_CY} rx={MOUTH_RX} ry={MOUTH_RY} />
-        </clipPath>
-      </defs>
+      {/* interior + lips + throat + tongue — behind the teeth */}
+      <g transform={MOUTH_ART_TRANSFORM}>
+        <MouthBack />
+      </g>
 
-      {/* lip rim */}
-      <ellipse
-        cx={MOUTH_CX}
-        cy={MOUTH_CY}
-        rx={MOUTH_RX}
-        ry={MOUTH_RY}
-        fill="#8c2438"
-        stroke="#5e1620"
-        strokeWidth="5"
-      />
-
-      <g clipPath={`url(#${clipId})`}>
-        {/* dark throat */}
-        <rect x={L} y={TOP} width={MOUTH_RX * 2} height={MOUTH_RY * 2} fill="#6d1a2b" />
-
-        {/* upper gum (pink), bottom edge curves along the upper gum line */}
-        <path
-          d={`M${L},${TOP} L${R},${TOP} L${R},${UPPER_GUM} Q${MOUTH_CX},${UPPER_GUM + 14} ${L},${UPPER_GUM} Z`}
-          fill={GUM}
+      {/* teeth arch — each renders its own state sprite + problem overlays */}
+      {layout.map((p) => (
+        <Tooth
+          key={p.index}
+          p={p}
+          t={teeth[p.index]}
+          revealed={revealed.has(p.index)}
+          wiggling={wigglingTooth === p.index}
+          highlight={targetTeeth.has(p.index)}
         />
-        {/* lower gum (pink), top edge curves along the lower gum line */}
-        <path
-          d={`M${L},${LOWER_GUM} Q${MOUTH_CX},${LOWER_GUM - 14} ${R},${LOWER_GUM} L${R},${BOT} L${L},${BOT} Z`}
-          fill={GUM}
-        />
+      ))}
 
-        {/* tongue, behind the lower teeth */}
-        <ellipse cx={MOUTH_CX} cy={BOT - 28} rx={96} ry={48} fill="#f08aa2" stroke={GUM_DARK} strokeWidth="3" />
-        <path d={`M${MOUTH_CX},${BOT - 64} v 42`} stroke={GUM_DARK} strokeWidth="3" strokeLinecap="round" />
-
-        {/* teeth — snug arch, roots seated on the gums */}
-        {layout.map((p) => (
-          <Tooth
-            key={p.index}
-            p={p}
-            t={teeth[p.index]}
-            revealed={revealed.has(p.index)}
-            wiggling={wigglingTooth === p.index}
-            highlight={targetTeeth.has(p.index)}
-          />
-        ))}
-
-        {/* gum-line ridges drawn over the root ends so teeth tuck into the gum */}
-        <path
-          d={`M${L},${UPPER_GUM} Q${MOUTH_CX},${UPPER_GUM + 14} ${R},${UPPER_GUM}`}
-          fill="none"
-          stroke={GUM}
-          strokeWidth="16"
-          strokeLinecap="round"
-        />
-        <path
-          d={`M${L},${LOWER_GUM} Q${MOUTH_CX},${LOWER_GUM - 14} ${R},${LOWER_GUM}`}
-          fill="none"
-          stroke={GUM}
-          strokeWidth="16"
-          strokeLinecap="round"
-        />
+      {/* gum ridges — the only mouth part in front of the teeth, hiding the roots */}
+      <g transform={MOUTH_ART_TRANSFORM}>
+        <MouthGums />
       </g>
 
       {/* stink cloud drifting out of the mouth */}

@@ -1,0 +1,14 @@
+{
+  "_note": "Locked mouth/teeth layout, tuned in mouth-tuner.html. Coordinates in a 360-wide stage. Mouth image is square (h=mouthWidth).",
+  "upperY": 311,
+  "upperCurve": -12,
+  "lowerY": 402,
+  "lowerCurve": 26,
+  "toothSize": 60,
+  "span": 0.62,
+  "mouthWidth": 331,
+  "mouthY": 195,
+  "rows": 5,
+  "toothFormula": "for each of 5 columns x across span (centered): f = 1-((x-cx)/half)^2; toothCenterY = rowY + rowCurve*f. Upper row teeth flipped vertically. Render order: mouth-interior -> teeth -> gums(on top).",
+  "layering": "treatment-room bg < animal head < mouth-interior(no gums) < teeth < gums(upper+lower ridge) ; gums on top hide the roots"
+}

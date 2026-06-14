@@ -23,6 +23,20 @@ const VB_W = 360;
 const VB_H = 560;
 const TRAY_Y = 500;
 
+/* The dragged tool sprite is drawn at translate(x, y-34) scale(1.25) with the
+   tool art filling a 60x78 box (tall/narrow, so `meet` fits to height: the
+   sprite spans scene y-81 .. y+12). EVERY tool in this set is drawn with its
+   working end (brush bristles, drill bit, forceps jaws, mirror head, polisher
+   pad, paste nozzle, pick tip) at the TOP of the sprite and the handle below —
+   so the part that visually touches a tooth sits ABOVE the cursor. Measured
+   (scripts/measure_tip.py + _bristle.py): the brush bristle face renders ~51px
+   above the cursor, the head center ~64px above. Hit-testing used the raw
+   cursor, so actions/feedback fired ~50px BELOW where the bristles visually
+   touched. We hit-test at the contact point (cursor + this offset) instead, so
+   the tool activates and the tooth flares exactly where the tip looks like it's
+   touching. Negative = above the cursor. */
+const TOOL_TIP_DY = -56;
+
 interface Particle {
   id: number;
   kind: 'foam' | 'water' | 'poof' | 'star' | 'toothfly';
@@ -67,6 +81,9 @@ export function Treatment({
   const [stinkGone, setStinkGone] = useState(false);
   const [hintOn, setHintOn] = useState(false);
   const [doneSteps, setDoneSteps] = useState(0);
+  // tooth currently under the tool's contact point + a valid target — flares
+  // immediately on hover, before any scrub/dwell completes ("you're on it").
+  const [contactTooth, setContactTooth] = useState<number | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const dragGRef = useRef<SVGGElement>(null);
@@ -80,6 +97,7 @@ export function Treatment({
   const transitioningRef = useRef(false);
   const lastActRef = useRef(Date.now());
   const revealedRef = useRef(revealed);
+  const contactToothRef = useRef<number | null>(null);
 
   useEffect(() => {
     teethRef.current = teeth;
@@ -147,6 +165,24 @@ export function Treatment({
     return nx * nx + ny * ny <= 1;
   }
 
+  /** Is this tooth a still-needs-this-tool target for the active step? Drives the
+   *  on-contact flare. magnifier: an unrevealed problem tooth; everything else: a
+   *  step target that isn't already done for this tool. */
+  function isLiveTarget(i: number): boolean {
+    if (!step) return false;
+    if (step.tool === 'magnifier') {
+      return problemTeeth.has(i) && !revealedRef.current.has(i);
+    }
+    return step.targets.includes(i) && !toothDoneForTool(teethRef.current[i], step.tool);
+  }
+
+  /** Set the flaring tooth (ref + state), skipping no-op renders. */
+  function setContact(i: number | null) {
+    if (contactToothRef.current === i) return;
+    contactToothRef.current = i;
+    setContactTooth(i);
+  }
+
   function throttled(key: string, ms: number): boolean {
     const now = Date.now();
     const last = throttleRef.current.get(key) ?? 0;
@@ -196,16 +232,18 @@ export function Treatment({
 
   /* ---------- interactions ---------- */
 
-  function handleToolMove(x: number, y: number, dragKind: DragKind) {
+  function handleToolMove(rawX: number, rawY: number, dragKind: DragKind) {
     if (!step || !dragKind) return;
     if (dragKind.kind === 'piece') {
-      // proximity snap for the matching shape
+      setContact(null);
+      // proximity snap for the matching shape (uses the dragged piece's center,
+      // i.e. the raw cursor — the piece is not a pointed tool)
       const target = step.targets.find(
         (i) => teethRef.current[i].chip === 'smoothed'
       );
       if (target === undefined) return;
       const p = layout[target];
-      if (Math.hypot(x - p.cx, y - p.cy) < 58) {
+      if (Math.hypot(rawX - p.cx, rawY - p.cy) < 58) {
         if (dragKind.shape === teethRef.current[target].chipShape) {
           updateTooth(target, (t) => {
             t.chip = 'repaired';
@@ -216,6 +254,15 @@ export function Treatment({
       }
       return;
     }
+
+    // hit-test at the tool's visible business end, not the raw cursor
+    const x = rawX;
+    const y = rawY + TOOL_TIP_DY;
+
+    // immediate "you're on it" flare: the tooth under the contact point that
+    // still needs this tool, independent of scrub distance / dwell completion
+    const overTooth = toothAt(x, y);
+    setContact(overTooth !== null && isLiveTarget(overTooth) ? overTooth : null);
 
     switch (step.tool) {
       case 'magnifier': {
@@ -298,8 +345,14 @@ export function Treatment({
   function dwellTick() {
     const dragKind = draggingRef.current;
     if (!dragKind || dragKind.kind !== 'tool' || !step) return;
-    const { x, y } = lastPtRef.current;
+    // dwell on the tool's contact point (cursor + tip offset), same as move
+    const x = lastPtRef.current.x;
+    const y = lastPtRef.current.y + TOOL_TIP_DY;
     const dt = 80;
+
+    // keep the on-contact flare live even when the finger holds still
+    const over = toothAt(x, y);
+    setContact(over !== null && isLiveTarget(over) ? over : null);
 
     if (step.tool === 'sprayer' || step.tool === 'mouthwash') {
       if (inMouth(x, y)) {
@@ -409,6 +462,7 @@ export function Treatment({
     draggingRef.current = null;
     setDrag(null);
     setWigglingTooth(null);
+    setContact(null);
     if (tickRef.current !== null) {
       window.clearInterval(tickRef.current);
       tickRef.current = null;
@@ -647,6 +701,32 @@ export function Treatment({
           targetTeeth={targetSet}
           stinkOpacity={stinkOpacity}
         />
+
+        {/* immediate on-contact flare: a strong pulsing ring on the tooth the
+            tool tip is currently over (a valid target). Rendered after <Mouth>
+            so it sits above the gum ridges and reads as "you're on it". Outer g
+            holds position, inner g runs the CSS animation (CSS transform would
+            override the SVG transform attr — same pattern as zd-target/zd-wiggle).
+            This is separate from the Tooth's static zd-target highlight; it is the
+            stronger flare that fires the instant the bristles/tip touch. */}
+        {contactTooth !== null && layout[contactTooth] && (
+          <g transform={`translate(${layout[contactTooth].cx},${layout[contactTooth].cy})`}>
+            <g className="zd-flare">
+              <circle
+                r={layout[contactTooth].w * 0.6}
+                fill="#fff2a8"
+                opacity="0.55"
+              />
+              <circle
+                r={layout[contactTooth].w * 0.6}
+                fill="none"
+                stroke="#ffd23f"
+                strokeWidth="4"
+                opacity="0.95"
+              />
+            </g>
+          </g>
+        )}
 
         {/* particles — outer g holds position, inner g runs the CSS animation
             (CSS transform would otherwise override the SVG transform attr) */}
