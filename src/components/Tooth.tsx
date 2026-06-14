@@ -14,15 +14,17 @@ export interface ToothPlacement {
 const INK = '#1d3557';
 
 /* Each tooth is the finished WebP art, drawn as a square sprite centered on its
-   arch slot (the WebP canvas is 256x256 with the tooth centered + transparent
-   margins, so no white card is needed behind it). The upper row is flipped
-   vertically so its crowns point down toward the mouth.
+   arch slot. Structure exposes hooks for the progressive work model (Treatment.tsx):
+   - the OUTER group carries data-tooth={index} so the work loop can find it;
+   - data-fx-body wraps the moving parts (the drill/pull JUDDER class is toggled here
+     imperatively — it has NO React-controlled className so a re-render can't clobber it);
+   - data-fx-problem wraps ONLY the problem overlays (surface state sprite, chip notch,
+     germ, debris) so the work loop can fade them as a unit while a tool works
+     (opacity = 1 - meter), WITHOUT fading the clean tooth underneath. A problem is
+     always an OVERLAY on the tooth, never a replacement.
 
-   Clean = teeth/item_1; problem surfaces (plaque/hole/filling/rotten) swap the
-   sprite. Germ + sparkle come from effects/. Two things stay procedural:
-   - the chip NOTCH (tri/square/round) — its shape must match the tray puzzle
-     piece the child picks, so it has to be visible;
-   - the DebrisSprite food shapes (no art for carrot/leaf/bone/fish). */
+   Two things stay procedural (no art equivalent): the chip NOTCH (its shape must match
+   the tray puzzle piece) and the DebrisSprite food shapes. */
 
 function DebrisSprite({ kind, s }: { kind: DebrisKind; s: number }) {
   switch (kind) {
@@ -105,11 +107,8 @@ function ChipNotch({
 }
 
 /** Dominant tooth-surface art layered over the clean base (null = stays clean). */
-function surfaceArt(
-  t: ToothState,
-  wiggling: boolean
-): { src: string; opacity: number } | null {
-  if (t.rot === 'rotten') return { src: wiggling ? TOOTH_ART.shaking : TOOTH_ART.rotten, opacity: 1 };
+function surfaceArt(t: ToothState): { src: string; opacity: number } | null {
+  if (t.rot === 'rotten') return { src: TOOTH_ART.rotten, opacity: 1 };
   if (t.cavity === 'hole') return { src: TOOTH_ART.hole, opacity: 1 };
   if (t.cavity === 'filled') return { src: TOOTH_ART.filling, opacity: 1 };
   if (t.plaque > 0.02) return { src: TOOTH_ART.plaque, opacity: Math.min(1, t.plaque * 0.85 + 0.15) };
@@ -120,13 +119,11 @@ export function Tooth({
   p,
   t,
   revealed,
-  wiggling,
   highlight,
 }: {
   p: ToothPlacement;
   t: ToothState;
   revealed: boolean;
-  wiggling: boolean;
   highlight: boolean;
 }) {
   const { cx, cy, w, dir } = p;
@@ -136,7 +133,7 @@ export function Tooth({
   if (t.rot === 'gone') {
     // empty socket at the gum line (root side), procedural — it's a gum gap
     return (
-      <g transform={`translate(${cx},${cy})`}>
+      <g data-tooth={p.index} transform={`translate(${cx},${cy})`}>
         <ellipse
           cx={0}
           cy={-toCrown * w * 0.32}
@@ -151,52 +148,59 @@ export function Tooth({
     );
   }
 
-  const surface = surfaceArt(t, wiggling);
+  const surface = surfaceArt(t);
+  const flip = dir === 'down' ? 'scale(1,-1)' : undefined;
 
   return (
-    <g transform={`translate(${cx},${cy})`}>
+    <g data-tooth={p.index} transform={`translate(${cx},${cy})`}>
       {highlight && (
         <ellipse cx={0} cy={0} rx={w * 0.5} ry={w * 0.54} fill="#ffe066" opacity="0.5" className="zd-target" />
       )}
 
-      <g className={wiggling ? 'zd-wiggle' : undefined}>
-        {/* tooth body — square sprite, crown flipped down on the top row */}
-        <g transform={dir === 'down' ? 'scale(1,-1)' : undefined}>
+      {/* data-fx-body: the moving parts; the drill/pull judder class is toggled here */}
+      <g data-fx-body>
+        {/* clean tooth — always present, never faded (problems are overlays) */}
+        <g transform={flip}>
           <image href={TOOTH_ART.clean} x={-w / 2} y={-w / 2} width={w} height={w} preserveAspectRatio="xMidYMid meet" />
-          {surface && (
-            <image
-              href={surface.src}
-              x={-w / 2}
-              y={-w / 2}
-              width={w}
-              height={w}
-              preserveAspectRatio="xMidYMid meet"
-              opacity={dim * surface.opacity}
-              className={revealed ? 'zd-revealed' : undefined}
-            />
-          )}
         </g>
 
-        {/* problem overlays in upright coords, dimmed until revealed */}
-        {(t.chip === 'broken' || t.chip === 'smoothed') && t.chipShape && (
-          <g opacity={dim} className={revealed ? 'zd-revealed' : undefined}>
-            <ChipNotch shape={t.chipShape} s={w} dir={dir} smoothed={t.chip === 'smoothed'} />
-          </g>
-        )}
-
-        {t.germ && (
-          <g transform={`translate(0,${toCrown * w * 0.1})`} opacity={dim} className={revealed ? 'zd-revealed' : undefined}>
-            <g className="zd-germ">
-              <image href={EFFECT_ART.germGreen} x={-w * 0.4} y={-w * 0.4} width={w * 0.8} height={w * 0.8} preserveAspectRatio="xMidYMid meet" />
+        {/* data-fx-problem: every problem overlay, faded as a unit while a tool works */}
+        <g data-fx-problem>
+          {surface && (
+            <g transform={flip}>
+              <image
+                href={surface.src}
+                x={-w / 2}
+                y={-w / 2}
+                width={w}
+                height={w}
+                preserveAspectRatio="xMidYMid meet"
+                opacity={dim * surface.opacity}
+                className={revealed ? 'zd-revealed' : undefined}
+              />
             </g>
-          </g>
-        )}
+          )}
 
-        {t.debris && (
-          <g transform={`translate(0,${toCrown * w * 0.12})`} opacity={dim} className={revealed ? 'zd-revealed' : undefined}>
-            <DebrisSprite kind={t.debris} s={w * 0.28} />
-          </g>
-        )}
+          {(t.chip === 'broken' || t.chip === 'smoothed') && t.chipShape && (
+            <g opacity={dim} className={revealed ? 'zd-revealed' : undefined}>
+              <ChipNotch shape={t.chipShape} s={w} dir={dir} smoothed={t.chip === 'smoothed'} />
+            </g>
+          )}
+
+          {t.germ && (
+            <g transform={`translate(0,${toCrown * w * 0.1})`} opacity={dim} className={revealed ? 'zd-revealed' : undefined}>
+              <g className="zd-germ">
+                <image href={EFFECT_ART.germGreen} x={-w * 0.4} y={-w * 0.4} width={w * 0.8} height={w * 0.8} preserveAspectRatio="xMidYMid meet" />
+              </g>
+            </g>
+          )}
+
+          {t.debris && (
+            <g transform={`translate(0,${toCrown * w * 0.12})`} opacity={dim} className={revealed ? 'zd-revealed' : undefined}>
+              <DebrisSprite kind={t.debris} s={w * 0.28} />
+            </g>
+          )}
+        </g>
 
         {t.sparkle && (
           <g transform={`translate(0,${toCrown * w * 0.08})`}>

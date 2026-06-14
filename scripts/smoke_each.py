@@ -1,16 +1,22 @@
-"""Per-patient playability smoke (connector-art back-test).
+"""Per-patient playability smoke (connector-art back-test, meter-aware).
 
-smoke_full.py drives all six visits in ONE page session; headless Chromium OOMs
-on that long cumulative WebGL/image session around visit 3 (environmental, not a
-game bug). This variant reloads between patients (resetting renderer memory) and
-seeds a free-play save so every animal can be opened directly, then plays each to
-its celebration. Reports COMPLETE/INCOMPLETE per patient + any console/page error.
+smoke_full.py drives all six visits in ONE page session; headless Chromium OOMs on
+that long cumulative session. This variant reloads between patients (fresh renderer)
+and seeds a free-play save so every animal can be opened directly, then plays each to
+its celebration.
+
+Step 4 made tools PROGRESSIVE (a per-tooth work meter fills only while the tool tip is
+held on a target; the tip sits ~56px above the cursor — TOOL_TIP_DY). So the driver
+HOLDS/wiggles the tool on each highlighted target ([data-tooth]:has(.zd-target)) until
+it clears, sweeps the mouth for whole-mouth steps (look/rinse), and tries each tray
+piece for the chip puzzle. Reports COMPLETE/INCOMPLETE per patient + any console error.
 """
 import sys
+import time
 from playwright.sync_api import sync_playwright
 
 VB_W, VB_H, TRAY_Y = 360, 560, 500
-SLOTS = (108, 180, 252, 144, 216, 72, 288, 48, 312, 24, 336)
+TIP_DY = 56  # cursor sits this far below the contact point (tool acts at cursor - 56)
 NAMES = ['Pip', 'Momo', 'Hugo', 'Ella', 'Snappy', 'Leo']
 SEED = ('{"treated":{"bunny":1,"monkey":1,"hippo":1,"croc":1,"lion":1,'
         '"elephant":1},"totalVisits":6,"muted":true}')
@@ -22,54 +28,121 @@ def svg_to_px(box, x, y):
     return (box['x'] + (box['width'] - VB_W * s) / 2 + x * s,
             box['y'] + (box['height'] - VB_H * s) / 2 + y * s)
 
-# Tools act at the bristle/tip, ~56px ABOVE the cursor (TOOL_TIP_DY in Treatment.tsx),
-# so to land a tool on a tooth the cursor must sit that far below the contact point.
-TIP_DY = 56
+def slot_x(slot, count):
+    return VB_W / 2 + (slot - (count - 1) / 2) * min(72, 330 / max(1, count))
 
-def sweep(page, box):
-    # sweep the CONTACT point across the teeth + mouth band (scene y ~150-320)
-    for cy in range(150, 320, 26):
-        for cx in range(60, 305, 40):
-            px, py = svg_to_px(box, cx, cy + TIP_DY)
-            page.mouse.move(px, py, steps=2); page.wait_for_timeout(55)
-
-def play_visit(page):
-    svg = page.locator('svg.zd-scene'); label = page.locator('.zd-steplabel')
-    last, stuck = '', 0
-    for _ in range(20):
+def label_text(label):
+    # short-timeout, never-throw read (the label detaches at the celebration
+    # transition; a bare inner_text() would auto-wait the full 30s and time out)
+    try:
         if label.count() == 0:
-            break
-        cur = label.inner_text(); box = svg.bounding_box()
-        for sx in SLOTS:
-            mx, my = svg_to_px(box, sx, TRAY_Y)
-            page.mouse.move(mx, my); page.mouse.down(); sweep(page, box)
-            page.mouse.up(); page.wait_for_timeout(820)
-            if label.count() == 0 or label.inner_text() != cur:
+            return ''
+        return label.inner_text(timeout=500)
+    except Exception:
+        return ''
+
+def work_targets(pg, label, cur, box):
+    """Tool held down: hold/wiggle on each highlighted target until the step changes."""
+    bn = pg.locator('.zd-bounce').first
+    if bn.count() == 0:
+        return
+    bb = bn.bounding_box()
+    pg.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
+    pg.mouse.down()
+    t0 = time.time()
+    while label_text(label) == cur and time.time() - t0 < 8:
+        tg = pg.locator('[data-tooth]:has(.zd-target)')
+        n = tg.count()
+        if n > 0:
+            tb = tg.first.bounding_box()
+            if not tb:
                 break
+            cx, cy = tb['x'] + tb['width'] / 2, tb['y'] + tb['height'] / 2
+            for k in range(26):  # hold ~2s, small wiggle keeps contact on the tooth
+                pg.mouse.move(cx + ((k % 3) - 1) * 3, cy + TIP_DY)
+                pg.wait_for_timeout(80)
+                if label_text(label) != cur:
+                    break
+                if pg.locator('[data-tooth]:has(.zd-target)').count() < n:
+                    break  # this target cleared -> re-pick
+        else:
+            # whole-mouth (look / rinse): sweep the mouth band, contact offset applied
+            swept = False
+            for gy in range(160, 300, 26):
+                for gx in range(80, 285, 36):
+                    px, py = svg_to_px(box, gx, gy + TIP_DY)
+                    pg.mouse.move(px, py)
+                    pg.wait_for_timeout(50)
+                    if label_text(label) != cur:
+                        swept = True
+                        break
+                if swept:
+                    break
+            if not swept and label_text(label) == cur:
+                break  # nothing to do and not advancing
+    pg.mouse.up()
+
+def work_puzzle(pg, label, cur, box):
+    """Chip puzzle: drag each tray piece onto the highlighted smoothed tooth. The
+    matching shape snaps on proximity, so wiggle on the tooth; try each piece twice."""
+    tg = pg.locator('[data-tooth]:has(.zd-target)')
+    if tg.count() == 0:
+        return
+    tb = tg.first.bounding_box()
+    tx, ty = tb['x'] + tb['width'] / 2, tb['y'] + tb['height'] / 2
+    for _ in range(2):
+        for slot in range(3):
+            sx, sy = svg_to_px(box, slot_x(slot, 3), TRAY_Y)
+            pg.mouse.move(sx, sy)
+            pg.mouse.down()
+            pg.mouse.move(tx, ty, steps=6)
+            for k in range(5):  # wiggle on the tooth so the proximity snap fires
+                pg.mouse.move(tx + ((k % 3) - 1) * 4, ty + ((k % 2) * 4 - 2))
+                pg.wait_for_timeout(70)
+                if label_text(label) != cur:
+                    pg.mouse.up()
+                    return
+            pg.mouse.up()
+            pg.wait_for_timeout(260)
+            if label_text(label) != cur:
+                return
+
+def play_visit(pg):
+    svg = pg.locator('svg.zd-scene')
+    label = pg.locator('.zd-steplabel')
+    stuck = 0
+    for _ in range(26):
+        cur = label_text(label)
+        if cur == '':
+            break
+        box = svg.bounding_box()
+        if 'piece' in cur.lower():
+            work_puzzle(pg, label, cur, box)
+        else:
+            work_targets(pg, label, cur, box)
         if label.count() == 0:
             break
-        if label.inner_text() == cur:
+        if label_text(label) == cur:
             stuck += 1
             if stuck >= 3:
+                p_(f'    (stuck on: {cur})')
                 return False
         else:
             stuck = 0
-    page.wait_for_timeout(1200)
-    return page.locator('text=NEXT PATIENT').count() > 0
+    pg.wait_for_timeout(1200)
+    return pg.locator('text=NEXT PATIENT').count() > 0
 
 with sync_playwright() as pw:
     all_ok = True
     for name in NAMES:
-        # fresh browser per patient: headless Chromium gets unstable across many
-        # heavy treatment sessions in one process (the cumulative-crash above).
         b = pw.chromium.launch()
-        pg = b.new_page(viewport={'width': 380, 'height': 760})
+        pg = b.new_page(viewport={'width': 360, 'height': 720})
         pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
         pg.on('pageerror', lambda e: errors.append(str(e)))
         pg.add_init_script(f"localStorage.setItem('zoosmiles_save_v1', '{SEED}')")
         pg.goto('http://localhost:4173'); pg.wait_for_load_state('networkidle')
         pg.click('text=PLAY', force=True); pg.wait_for_timeout(400)
-        pg.click(f'.zd-card:has-text("{name}")', force=True); pg.wait_for_timeout(500)
+        pg.click(f'.zd-card:has-text("{name}")', force=True); pg.wait_for_timeout(600)
         ok = play_visit(pg)
         p_(f'{name:7s}: {"COMPLETE" if ok else "INCOMPLETE"}')
         all_ok &= ok

@@ -92,7 +92,6 @@ export function Mouth({
   teeth,
   layout,
   revealed,
-  wigglingTooth,
   targetTeeth,
   stinkOpacity,
 }: {
@@ -100,7 +99,6 @@ export function Mouth({
   teeth: ToothState[];
   layout: ToothPlacement[];
   revealed: Set<number>;
-  wigglingTooth: number | null;
   targetTeeth: Set<number>;
   stinkOpacity: number;
 }) {
@@ -120,7 +118,6 @@ export function Mouth({
           p={p}
           t={teeth[p.index]}
           revealed={revealed.has(p.index)}
-          wiggling={wigglingTooth === p.index}
           highlight={targetTeeth.has(p.index)}
         />
       ))}

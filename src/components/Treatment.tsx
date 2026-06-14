@@ -17,41 +17,58 @@ import { computeToothLayout, Mouth, MOUTH_CX, MOUTH_CY, MOUTH_RX, MOUTH_RY } fro
 import { AnimalFace, type Expression } from './AnimalFace';
 import { ToolSprite, PuzzlePiece } from './tools';
 import { TOOTH_ART, BACKGROUNDS } from '../game/assets';
+import { buzz } from '../lib/haptics';
 import * as sfx from '../lib/sfx';
 
 const VB_W = 360;
 const VB_H = 560;
 const TRAY_Y = 500;
 
-/* The dragged tool sprite is drawn at translate(x, y-34) scale(1.25) with the
-   tool art filling a 60x78 box (tall/narrow, so `meet` fits to height: the
-   sprite spans scene y-81 .. y+12). EVERY tool in this set is drawn with its
-   working end (brush bristles, drill bit, forceps jaws, mirror head, polisher
-   pad, paste nozzle, pick tip) at the TOP of the sprite and the handle below —
-   so the part that visually touches a tooth sits ABOVE the cursor. Measured
-   (scripts/measure_tip.py + _bristle.py): the brush bristle face renders ~51px
-   above the cursor, the head center ~64px above. Hit-testing used the raw
-   cursor, so actions/feedback fired ~50px BELOW where the bristles visually
-   touched. We hit-test at the contact point (cursor + this offset) instead, so
-   the tool activates and the tooth flares exactly where the tip looks like it's
-   touching. Negative = above the cursor. */
+/* The dragged tool sprite is drawn at translate(x, y-34) scale(1.25) with the tool
+   art's WORKING END at the top of the sprite, so the part that visually touches a
+   tooth sits ~56px ABOVE the cursor. Hit-test at that contact point so the tool
+   acts (and the tooth flares) exactly where the tip looks like it's touching. */
 const TOOL_TIP_DY = -56;
 
-interface Particle {
-  id: number;
-  kind: 'foam' | 'water' | 'poof' | 'star' | 'toothfly';
-  x: number;
-  y: number;
-  dx: number;
-  dy: number;
+/* ---- Step 4: progressive tool work ----
+   A tool never clears a problem instantly. While its tip is held/scrubbed over a
+   live target, a per-tooth WORK METER (0..1, in meterRef) fills by TICK_MS/ms each
+   tick; the problem overlay fades (opacity = 1 - meter, set imperatively on the
+   tooth's [data-fx-problem] group), particles spawn, and a haptic ticks. At 1 the
+   problem clears and the tooth advances its state (the only React re-render). The
+   meter persists across pauses (pause-never-reset). Feel mirrors the reference
+   demos assets/scrub-demo.html (brush) and assets/drill-demo.html (drill). */
+const TICK_MS = 85;
+const FX_CAP = 15; // max live particles (old-Android budget)
+
+type FxKind = 'bubble' | 'spark' | 'debris' | 'poof' | 'gloop' | 'pop' | 'water' | 'toothfly';
+
+interface ToolFeel {
+  ms: number; // time to fully clear one problem
+  particle: FxKind | FxKind[];
+  fxEvery: number; // spawn particles every Nth tick (particle-rate knob)
+  vibTick: number | number[]; // per-tick haptic
+  vibDone: number; // completion haptic
+  judder?: boolean; // shake the tooth while working (drill / pull)
+  wince?: boolean; // patient winces while working
 }
+
+/** Per-tool tunable feel. Durations, particle kind/rate, and vibrate patterns. */
+const TOOL_FEEL: Partial<Record<ToolId, ToolFeel>> = {
+  tweezers: { ms: 520, particle: 'pop', fxEvery: 1, vibTick: 12, vibDone: 30 },
+  brush: { ms: 820, particle: 'bubble', fxEvery: 1, vibTick: 15, vibDone: 25 },
+  germspray: { ms: 640, particle: 'poof', fxEvery: 1, vibTick: 14, vibDone: 25 },
+  drill: { ms: 1000, particle: ['spark', 'debris'], fxEvery: 1, vibTick: [12, 8], vibDone: 40, judder: true, wince: true },
+  filler: { ms: 720, particle: 'gloop', fxEvery: 1, vibTick: 12, vibDone: 35 },
+  forceps: { ms: 1100, particle: ['spark', 'debris'], fxEvery: 1, vibTick: [10, 10], vibDone: 40, judder: true, wince: true },
+};
 
 type DragKind =
   | { kind: 'tool' }
   | { kind: 'piece'; shape: PuzzleShape; slot: number }
   | null;
 
-let particleId = 0;
+const SVGNS = 'http://www.w3.org/2000/svg';
 
 export function Treatment({
   visit,
@@ -74,24 +91,24 @@ export function Treatment({
   const [mouthProgress, setMouthProgress] = useState(0);
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const [expr, setExpr] = useState<Expression>('open');
-  const [wigglingTooth, setWigglingTooth] = useState<number | null>(null);
-  const [particles, setParticles] = useState<Particle[]>([]);
   const [drag, setDrag] = useState<DragKind>(null);
   const [shakingPiece, setShakingPiece] = useState<number | null>(null);
   const [stinkGone, setStinkGone] = useState(false);
   const [hintOn, setHintOn] = useState(false);
   const [doneSteps, setDoneSteps] = useState(0);
-  // tooth currently under the tool's contact point + a valid target — flares
-  // immediately on hover, before any scrub/dwell completes ("you're on it").
+  // tooth under the tool tip + a valid target — flares immediately on hover.
   const [contactTooth, setContactTooth] = useState<number | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const dragGRef = useRef<SVGGElement>(null);
+  const fxLayerRef = useRef<SVGGElement>(null);
+  const fxNodesRef = useRef<SVGGElement[]>([]);
   const teethRef = useRef(teeth);
   const draggingRef = useRef<DragKind>(null);
   const lastPtRef = useRef({ x: 0, y: 0 });
-  const accRef = useRef(new Map<number, number>());
-  const scrubRef = useRef({ x: 0, y: 0, dist: 0 });
+  const meterRef = useRef(new Map<number, number>()); // per-tooth work meter 0..1
+  const tickCountRef = useRef(0);
+  const judderRef = useRef<number | null>(null);
   const tickRef = useRef<number | null>(null);
   const throttleRef = useRef(new Map<string, number>());
   const transitioningRef = useRef(false);
@@ -165,9 +182,27 @@ export function Treatment({
     return nx * nx + ny * ny <= 1;
   }
 
-  /** Is this tooth a still-needs-this-tool target for the active step? Drives the
-   *  on-contact flare. magnifier: an unrevealed problem tooth; everything else: a
-   *  step target that isn't already done for this tool. */
+  /** Can this tool still work this tooth? */
+  function readyFor(tool: ToolId, t: ToothState): boolean {
+    switch (tool) {
+      case 'tweezers':
+        return !!t.debris;
+      case 'brush':
+        return t.plaque > 0.02;
+      case 'germspray':
+        return t.germ;
+      case 'drill':
+        return t.cavity === 'hole' || t.chip === 'broken';
+      case 'filler':
+        return t.cavity === 'drilled';
+      case 'forceps':
+        return t.rot === 'rotten';
+      default:
+        return false;
+    }
+  }
+
+  /** Is this tooth a still-needs-this-tool target for the active step? */
   function isLiveTarget(i: number): boolean {
     if (!step) return false;
     if (step.tool === 'magnifier') {
@@ -176,7 +211,6 @@ export function Treatment({
     return step.targets.includes(i) && !toothDoneForTool(teethRef.current[i], step.tool);
   }
 
-  /** Set the flaring tooth (ref + state), skipping no-op renders. */
   function setContact(i: number | null) {
     if (contactToothRef.current === i) return;
     contactToothRef.current = i;
@@ -191,19 +225,145 @@ export function Treatment({
     return true;
   }
 
-  function spawn(kind: Particle['kind'], x: number, y: number) {
-    const p: Particle = {
-      id: particleId++,
-      kind,
-      x,
-      y,
-      dx: (Math.random() - 0.5) * 50,
-      dy: kind === 'toothfly' ? -120 : kind === 'water' ? 40 : -45,
+  /* ---------- imperative particle layer (no React re-render per spawn) ---------- */
+
+  function spawnFx(kind: FxKind, sx: number, sy: number) {
+    const layer = fxLayerRef.current;
+    if (!layer) return;
+    while (fxNodesRef.current.length >= FX_CAP) fxNodesRef.current.shift()?.remove();
+
+    const wrap = document.createElementNS(SVGNS, 'g');
+    wrap.setAttribute('transform', `translate(${sx.toFixed(1)},${sy.toFixed(1)})`);
+    wrap.setAttribute('pointer-events', 'none');
+
+    const ang = Math.random() * Math.PI * 2;
+    const spd = 16 + Math.random() * 26;
+    const dx = Math.cos(ang) * spd;
+    const dy = Math.sin(ang) * spd - 6;
+
+    const circle = (r: number, fill: string, op = '1') => {
+      const c = document.createElementNS(SVGNS, 'circle');
+      c.setAttribute('r', String(r));
+      c.setAttribute('fill', fill);
+      c.setAttribute('opacity', op);
+      return c as SVGElement;
     };
-    setParticles((prev) => [...prev.slice(-14), p]);
+
+    let inner: SVGElement;
+    let cls = '';
+    let life = 700;
+    switch (kind) {
+      case 'bubble':
+        inner = circle(4 + Math.random() * 7, '#ffffff', '0.85');
+        cls = 'zd-fx-bubble';
+        life = 1000;
+        break;
+      case 'spark':
+        inner = circle(3.4, '#ffd23f');
+        cls = 'zd-fx-drift';
+        life = 640;
+        break;
+      case 'debris': {
+        const r = document.createElementNS(SVGNS, 'rect');
+        r.setAttribute('x', '-3');
+        r.setAttribute('y', '-3');
+        r.setAttribute('width', '6');
+        r.setAttribute('height', '6');
+        r.setAttribute('rx', '1.5');
+        r.setAttribute('fill', '#b5712f');
+        inner = r;
+        cls = 'zd-fx-drift';
+        life = 640;
+        break;
+      }
+      case 'poof':
+        inner = circle(9, '#e3ecef', '0.85');
+        cls = 'zd-fx-poof';
+        life = 560;
+        break;
+      case 'gloop':
+        inner = circle(5, '#bfe3ff', '0.95');
+        cls = 'zd-fx-drift';
+        life = 600;
+        break;
+      case 'pop':
+        inner = circle(5, '#ffe066');
+        cls = 'zd-fx-poof';
+        life = 560;
+        break;
+      case 'water': {
+        const e = document.createElementNS(SVGNS, 'ellipse');
+        e.setAttribute('rx', '4');
+        e.setAttribute('ry', '6');
+        e.setAttribute('fill', '#6fc9ec');
+        inner = e;
+        cls = 'zd-fx-water';
+        life = 720;
+        break;
+      }
+      case 'toothfly': {
+        const im = document.createElementNS(SVGNS, 'image');
+        im.setAttribute('href', TOOTH_ART.clean);
+        im.setAttribute('x', '-14');
+        im.setAttribute('y', '-17');
+        im.setAttribute('width', '28');
+        im.setAttribute('height', '34');
+        im.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        inner = im;
+        cls = 'zd-fx-toothfly';
+        life = 900;
+        break;
+      }
+      default:
+        return;
+    }
+
+    inner.style.setProperty('--dx', `${dx.toFixed(0)}px`);
+    inner.style.setProperty('--dy', `${(kind === 'gloop' ? 14 : dy).toFixed(0)}px`);
+    inner.setAttribute('class', `zd-fx ${cls}`);
+    wrap.appendChild(inner);
+    layer.appendChild(wrap);
+    fxNodesRef.current.push(wrap);
     window.setTimeout(() => {
-      setParticles((prev) => prev.filter((q) => q.id !== p.id));
-    }, 900);
+      wrap.remove();
+      const idx = fxNodesRef.current.indexOf(wrap);
+      if (idx >= 0) fxNodesRef.current.splice(idx, 1);
+    }, life);
+  }
+
+  function emitFx(particle: FxKind | FxKind[], x: number, y: number) {
+    if (Array.isArray(particle)) particle.forEach((k) => spawnFx(k, x, y));
+    else spawnFx(particle, x, y);
+  }
+
+  /* ---------- imperative tooth feedback (fade overlay / judder) ---------- */
+
+  function problemEl(i: number): SVGGElement | null {
+    return (svgRef.current?.querySelector(
+      `[data-tooth="${i}"] [data-fx-problem]`
+    ) as SVGGElement | null) ?? null;
+  }
+  function fadeProblem(i: number, op: number) {
+    const el = problemEl(i);
+    if (el) el.style.opacity = String(Math.max(0, op));
+  }
+  function clearFade(i: number) {
+    const el = problemEl(i);
+    if (el) el.style.opacity = '';
+  }
+  function setJudder(i: number | null) {
+    if (judderRef.current === i) return;
+    if (judderRef.current !== null) {
+      svgRef.current
+        ?.querySelector(`[data-tooth="${judderRef.current}"] [data-fx-body]`)
+        ?.classList.remove('zd-judder');
+    }
+    if (i !== null) {
+      svgRef.current
+        ?.querySelector(`[data-tooth="${i}"] [data-fx-body]`)
+        ?.classList.add('zd-judder');
+    }
+    judderRef.current = i;
   }
 
   function updateTooth(idx: number, fn: (t: ToothState) => void) {
@@ -230,17 +390,35 @@ export function Treatment({
     setTeeth(next);
   }
 
+  /** Reveal any problem teeth within the lens, with a pop + light buzz. */
+  function revealNear(x: number, y: number) {
+    const next = new Set(revealedRef.current);
+    let any = false;
+    problemTeeth.forEach((i) => {
+      if (next.has(i)) return;
+      const p = layout[i];
+      if (Math.hypot(x - p.cx, y - p.cy) < 62) {
+        next.add(i);
+        any = true;
+        spawnFx('pop', p.cx, p.cy);
+      }
+    });
+    if (any) {
+      revealedRef.current = next;
+      setRevealed(next);
+      sfx.pop();
+      buzz(10);
+    }
+  }
+
   /* ---------- interactions ---------- */
 
   function handleToolMove(rawX: number, rawY: number, dragKind: DragKind) {
     if (!step || !dragKind) return;
     if (dragKind.kind === 'piece') {
       setContact(null);
-      // proximity snap for the matching shape (uses the dragged piece's center,
-      // i.e. the raw cursor — the piece is not a pointed tool)
-      const target = step.targets.find(
-        (i) => teethRef.current[i].chip === 'smoothed'
-      );
+      // proximity snap for the matching shape (the piece's center = raw cursor)
+      const target = step.targets.find((i) => teethRef.current[i].chip === 'smoothed');
       if (target === undefined) return;
       const p = layout[target];
       if (Math.hypot(rawX - p.cx, rawY - p.cy) < 58) {
@@ -249,200 +427,149 @@ export function Treatment({
             t.chip = 'repaired';
           });
           sfx.ding();
+          buzz(25);
+          spawnFx('pop', p.cx, p.cy);
           endDrag();
         }
       }
       return;
     }
 
-    // hit-test at the tool's visible business end, not the raw cursor
+    // hit-test at the tool's visible business end
     const x = rawX;
     const y = rawY + TOOL_TIP_DY;
-
-    // immediate "you're on it" flare: the tooth under the contact point that
-    // still needs this tool, independent of scrub distance / dwell completion
-    const overTooth = toothAt(x, y);
-    setContact(overTooth !== null && isLiveTarget(overTooth) ? overTooth : null);
-
-    switch (step.tool) {
-      case 'magnifier': {
-        let newly: number[] = [];
-        problemTeeth.forEach((i) => {
-          if (revealedRef.current.has(i)) return;
-          const p = layout[i];
-          if (Math.hypot(x - p.cx, y - p.cy) < 62) newly.push(i);
-        });
-        if (newly.length) {
-          const next = new Set(revealedRef.current);
-          newly.forEach((i) => next.add(i));
-          revealedRef.current = next;
-          setRevealed(next);
-          sfx.pop();
-        }
-        break;
-      }
-      case 'tweezers': {
-        const i = toothAt(x, y);
-        if (i !== null && teethRef.current[i].debris && throttled('tw', 180)) {
-          updateTooth(i, (t) => {
-            t.debris = null;
-          });
-          sfx.pop();
-          spawn('star', x, y - 20);
-        }
-        break;
-      }
-      case 'germspray': {
-        const i = toothAt(x, y);
-        if (i !== null && teethRef.current[i].germ && throttled('gs', 240)) {
-          updateTooth(i, (t) => {
-            t.germ = false;
-          });
-          sfx.spray();
-          spawn('poof', x, y - 16);
-        }
-        break;
-      }
-      case 'brush': {
-        const i = toothAt(x, y);
-        const s = scrubRef.current;
-        const d = Math.hypot(x - s.x, y - s.y);
-        s.x = x;
-        s.y = y;
-        if (i !== null && teethRef.current[i].plaque > 0.02 && d < 60) {
-          s.dist += d;
-          if (s.dist > 45) {
-            s.dist = 0;
-            updateTooth(i, (t) => {
-              t.plaque = Math.max(0, t.plaque - 0.34);
-            });
-            if (throttled('br', 140)) sfx.brush();
-            spawn('foam', x + (Math.random() - 0.5) * 24, y - 6);
-          }
-        }
-        break;
-      }
-      case 'implant': {
-        const target = step.targets.find(
-          (i) => teethRef.current[i].rot === 'gone'
-        );
-        if (target === undefined) return;
-        const p = layout[target];
-        if (Math.hypot(x - p.cx, y - p.cy) < 60) {
-          updateTooth(target, (t) => {
-            t.rot = 'implanted';
-          });
-          sfx.ding();
-          endDrag();
-        }
-        break;
-      }
-      default:
-        break; // dwell tools handled by the tick
-    }
-  }
-
-  function dwellTick() {
-    const dragKind = draggingRef.current;
-    if (!dragKind || dragKind.kind !== 'tool' || !step) return;
-    // dwell on the tool's contact point (cursor + tip offset), same as move
-    const x = lastPtRef.current.x;
-    const y = lastPtRef.current.y + TOOL_TIP_DY;
-    const dt = 80;
-
-    // keep the on-contact flare live even when the finger holds still
     const over = toothAt(x, y);
     setContact(over !== null && isLiveTarget(over) ? over : null);
+
+    if (step.tool === 'magnifier') {
+      revealNear(x, y);
+      return;
+    }
+    if (step.tool === 'implant') {
+      const target = step.targets.find((i) => teethRef.current[i].rot === 'gone');
+      if (target === undefined) return;
+      const p = layout[target];
+      if (Math.hypot(x - p.cx, y - p.cy) < 60) {
+        updateTooth(target, (t) => {
+          t.rot = 'implanted';
+        });
+        sfx.ding();
+        buzz(25);
+        spawnFx('pop', p.cx, p.cy);
+        endDrag();
+      }
+      return;
+    }
+    // brush / tweezers / germspray / drill / filler / forceps fill their meter in the tick
+  }
+
+  /** ~85ms loop while a tool is held: fills the work meter (refs only), fades the
+   *  problem, spawns particles + haptics; advances the tooth state on completion. */
+  function workTick() {
+    const dragKind = draggingRef.current;
+    if (!dragKind || dragKind.kind !== 'tool' || !step) return;
+    const x = lastPtRef.current.x;
+    const y = lastPtRef.current.y + TOOL_TIP_DY;
+    tickCountRef.current++;
+
+    const over = toothAt(x, y);
+    setContact(over !== null && isLiveTarget(over) ? over : null);
+
+    if (step.tool === 'magnifier') {
+      revealNear(x, y);
+      return;
+    }
 
     if (step.tool === 'sprayer' || step.tool === 'mouthwash') {
       if (inMouth(x, y)) {
         setMouthProgress((p) => Math.min(1, p + 0.04));
         if (throttled('sp', 350)) sfx.spray();
-        if (throttled('wp', 200)) {
-          spawn(
-            'water',
-            MOUTH_CX + (Math.random() - 0.5) * 180,
-            MOUTH_CY - 40 + Math.random() * 60
-          );
+        if (throttled('wp', 150)) {
+          spawnFx('water', MOUTH_CX + (Math.random() - 0.5) * 180, MOUTH_CY - 30 + Math.random() * 60);
         }
+        if (throttled('vb', 200)) buzz(8);
       }
       return;
     }
 
-    const dwellOn = (
-      tool: ToolId,
-      ready: (t: ToothState) => boolean,
-      needMs: number,
-      apply: (t: ToothState) => void,
-      sound: () => void,
-      wince: boolean
-    ) => {
-      const i = toothAt(x, y);
-      if (
-        i !== null &&
-        step.targets.includes(i) &&
-        ready(teethRef.current[i])
-      ) {
-        const acc = (accRef.current.get(i) ?? 0) + dt;
-        accRef.current.set(i, acc);
-        if (wince) {
-          setExpr('wince');
-          if (tool === 'forceps') setWigglingTooth(i);
-        }
-        if (throttled('dw' + tool, 300)) sound();
-        if (acc >= needMs) {
-          accRef.current.set(i, 0);
-          updateTooth(i, apply);
-          setExpr('open');
-          setWigglingTooth(null);
-          if (tool === 'forceps') {
-            sfx.pull();
-            const p = layout[i];
-            spawn('toothfly', p.cx, p.cy);
-          }
-        }
-      } else {
-        if (wince) {
-          setExpr('open');
-          setWigglingTooth(null);
-        }
-      }
-    };
+    if (step.tool === 'implant') return; // placed on move (snap)
 
-    if (step.tool === 'drill') {
-      dwellOn(
-        'drill',
-        (t) => t.cavity === 'hole' || t.chip === 'broken',
-        1200,
-        (t) => {
+    const feel = TOOL_FEEL[step.tool];
+    if (!feel) return;
+    const i = over;
+    const onTarget = i !== null && step.targets.includes(i) && readyFor(step.tool, teethRef.current[i]);
+    if (!onTarget) {
+      if (feel.wince) setExpr('open');
+      setJudder(null);
+      return;
+    }
+
+    // fill the meter — refs only, no React state per tick
+    const m = Math.min(1, (meterRef.current.get(i) ?? 0) + TICK_MS / feel.ms);
+    meterRef.current.set(i, m);
+    fadeProblem(i, 1 - m);
+    if (tickCountRef.current % feel.fxEvery === 0) emitFx(feel.particle, layout[i].cx, layout[i].cy);
+    buzz(feel.vibTick);
+    if (feel.judder) setJudder(i);
+    if (feel.wince) setExpr('wince');
+    if (throttled('w' + step.tool, 300)) toolSound(step.tool);
+
+    if (m >= 1) {
+      meterRef.current.set(i, 0);
+      clearFade(i);
+      setJudder(null);
+      if (feel.wince) setExpr('open');
+      buzz(feel.vibDone);
+      applyWork(step.tool, i);
+    }
+  }
+
+  function toolSound(tool: ToolId) {
+    ({
+      tweezers: sfx.pop,
+      brush: sfx.brush,
+      germspray: sfx.spray,
+      drill: sfx.drill,
+      filler: sfx.squish,
+      forceps: sfx.creak,
+    } as Partial<Record<ToolId, () => void>>)[tool]?.();
+  }
+
+  function applyWork(tool: ToolId, i: number) {
+    switch (tool) {
+      case 'tweezers':
+        updateTooth(i, (t) => {
+          t.debris = null;
+        });
+        break;
+      case 'brush':
+        updateTooth(i, (t) => {
+          t.plaque = 0;
+        });
+        break;
+      case 'germspray':
+        updateTooth(i, (t) => {
+          t.germ = false;
+        });
+        break;
+      case 'drill':
+        updateTooth(i, (t) => {
           if (t.cavity === 'hole') t.cavity = 'drilled';
           else if (t.chip === 'broken') t.chip = 'smoothed';
-        },
-        sfx.drill,
-        true
-      );
-    } else if (step.tool === 'filler') {
-      dwellOn(
-        'filler',
-        (t) => t.cavity === 'drilled',
-        900,
-        (t) => {
+        });
+        break;
+      case 'filler':
+        updateTooth(i, (t) => {
           t.cavity = 'filled';
-        },
-        sfx.squish,
-        false
-      );
-    } else if (step.tool === 'forceps') {
-      dwellOn(
-        'forceps',
-        (t) => t.rot === 'rotten',
-        1100,
-        (t) => {
+        });
+        break;
+      case 'forceps':
+        updateTooth(i, (t) => {
           t.rot = 'gone';
-        },
-        sfx.creak,
-        true
-      );
+        });
+        sfx.pull();
+        spawnFx('toothfly', layout[i].cx, layout[i].cy);
+        break;
     }
   }
 
@@ -454,15 +581,16 @@ export function Treatment({
     lastPtRef.current = { x, y };
     moveDragSprite(x, y);
     if (tickRef.current === null) {
-      tickRef.current = window.setInterval(dwellTick, 80);
+      tickRef.current = window.setInterval(workTick, TICK_MS);
     }
   }
 
   function endDrag() {
     draggingRef.current = null;
     setDrag(null);
-    setWigglingTooth(null);
     setContact(null);
+    setJudder(null);
+    setExpr('open');
     if (tickRef.current !== null) {
       window.clearInterval(tickRef.current);
       tickRef.current = null;
@@ -519,7 +647,6 @@ export function Treatment({
     setHintOn(false);
     const pt = svgPoint(e);
     e.currentTarget.setPointerCapture(e.pointerId);
-    // tray hit?
     const count = trayItems.length;
     for (const item of trayItems) {
       const x = slotX(item.slot, count);
@@ -551,9 +678,7 @@ export function Treatment({
     lastActRef.current = Date.now();
     const dragKind = draggingRef.current;
     if (dragKind?.kind === 'piece' && step) {
-      const target = step.targets.find(
-        (i) => teethRef.current[i].chip === 'smoothed'
-      );
+      const target = step.targets.find((i) => teethRef.current[i].chip === 'smoothed');
       if (target !== undefined) {
         const p = layout[target];
         const { x, y } = lastPtRef.current;
@@ -597,7 +722,7 @@ export function Treatment({
         setStepIndex((i) => i + 1);
         setMouthProgress(0);
         setExpr('open');
-        accRef.current.clear();
+        meterRef.current.clear();
         transitioningRef.current = false;
       }
     }, 750);
@@ -620,9 +745,7 @@ export function Treatment({
     if (step.tool === 'magnifier') {
       return new Set([...problemTeeth].filter((i) => !revealed.has(i)));
     }
-    return new Set(
-      step.targets.filter((i) => !toothDoneForTool(teeth[i], step.tool))
-    );
+    return new Set(step.targets.filter((i) => !toothDoneForTool(teeth[i], step.tool)));
   }, [step, teeth, revealed, problemTeeth]);
 
   const wholeMouthStep =
@@ -683,12 +806,8 @@ export function Treatment({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {/* treatment-room.webp is the fixed back layer (CSS bg on .zd-treat);
-            the scene SVG is transparent and composites the patient + mouth on
-            top. The lamp/tray/reception props are NOT overlaid: the room art
-            already bakes in the overhead lamp, the tool cart and the desk.
-            The art is a fixed expression, so a small CSS nudge stands in for the
-            wince while a tooth is being drilled/pulled. */}
+        {/* treatment-room.webp is the fixed CSS back layer; the SVG composites the
+            patient + mouth on top. A small CSS nudge stands in for the wince. */}
         <g className={expr === 'wince' ? 'zd-wince' : undefined}>
           <AnimalFace spec={spec} expr={expr} mouthOpen />
         </g>
@@ -697,69 +816,28 @@ export function Treatment({
           teeth={teeth}
           layout={layout}
           revealed={revealed}
-          wigglingTooth={wigglingTooth}
           targetTeeth={targetSet}
           stinkOpacity={stinkOpacity}
         />
 
-        {/* immediate on-contact flare: a strong pulsing ring on the tooth the
-            tool tip is currently over (a valid target). Rendered after <Mouth>
-            so it sits above the gum ridges and reads as "you're on it". Outer g
-            holds position, inner g runs the CSS animation (CSS transform would
-            override the SVG transform attr — same pattern as zd-target/zd-wiggle).
-            This is separate from the Tooth's static zd-target highlight; it is the
-            stronger flare that fires the instant the bristles/tip touch. */}
+        {/* on-contact flare: a pulsing ring on the tooth the tool tip is over. */}
         {contactTooth !== null && layout[contactTooth] && (
           <g transform={`translate(${layout[contactTooth].cx},${layout[contactTooth].cy})`}>
             <g className="zd-flare">
-              <circle
-                r={layout[contactTooth].w * 0.6}
-                fill="#fff2a8"
-                opacity="0.55"
-              />
-              <circle
-                r={layout[contactTooth].w * 0.6}
-                fill="none"
-                stroke="#ffd23f"
-                strokeWidth="4"
-                opacity="0.95"
-              />
+              <circle r={layout[contactTooth].w * 0.6} fill="#fff2a8" opacity="0.55" />
+              <circle r={layout[contactTooth].w * 0.6} fill="none" stroke="#ffd23f" strokeWidth="4" opacity="0.95" />
             </g>
           </g>
         )}
 
-        {/* particles — outer g holds position, inner g runs the CSS animation
-            (CSS transform would otherwise override the SVG transform attr) */}
-        {particles.map((p) => (
-          <g key={p.id} transform={`translate(${p.x},${p.y})`}>
-          <g
-            className={`zd-particle zd-${p.kind}`}
-            style={
-              {
-                '--dx': `${p.dx}px`,
-                '--dy': `${p.dy}px`,
-              } as React.CSSProperties
-            }
-          >
-            {p.kind === 'foam' && <circle r="7" fill="#fff" opacity="0.9" />}
-            {p.kind === 'water' && <ellipse rx="4" ry="6" fill="#6fc9ec" />}
-            {p.kind === 'poof' && <circle r="10" fill="#cfd8dc" opacity="0.85" />}
-            {p.kind === 'star' && (
-              <path d="M0,-9 L2,-2 L9,0 L2,2 L0,9 L-2,2 L-9,0 L-2,-2 Z" fill="#ffe066" />
-            )}
-            {p.kind === 'toothfly' && (
-              <image href={TOOTH_ART.clean} x={-16} y={-20} width={32} height={40} preserveAspectRatio="xMidYMid meet" />
-            )}
-          </g>
-          </g>
-        ))}
+        {/* imperative particle layer (work bubbles/sparks/debris/etc.) */}
+        <g ref={fxLayerRef} pointerEvents="none" />
 
         {/* tool tray */}
         <rect x="8" y={TRAY_Y - 44} width={VB_W - 16} height="96" rx="20" fill="#fff" stroke="#1d3557" strokeWidth="3" />
         {trayItems.map((item) => {
           const x = slotX(item.slot, trayCount);
-          const isDraggedPiece =
-            drag?.kind === 'piece' && item.piece === drag.shape;
+          const isDraggedPiece = drag?.kind === 'piece' && item.piece === drag.shape;
           return (
             <g
               key={item.key}
@@ -772,9 +850,7 @@ export function Treatment({
                   shakingPiece === item.slot ? 'zd-shake' : '',
                 ].join(' ')}
               >
-                {item.active && !drag && (
-                  <circle r="30" fill="#ffe066" opacity="0.55" />
-                )}
+                {item.active && !drag && <circle r="30" fill="#ffe066" opacity="0.55" />}
                 {item.piece ? (
                   <PuzzlePiece shape={item.piece} />
                 ) : (
