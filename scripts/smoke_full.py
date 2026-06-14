@@ -151,11 +151,10 @@ with sync_playwright() as p:
 
     all_ok = True
     for visit_no in range(1, 7):
-        target = page.locator('.zd-card-next')
+        # the scripted-next patient is the only awake seat (aria-label "... needs help")
+        target = page.locator('.zd-seat[aria-label*="needs help"]')
         if target.count() == 0:
-            target = page.locator('.zd-card:not(.zd-card-locked)')
-        if target.count() == 0:
-            print('NO PATIENT AVAILABLE')
+            print('NO AWAKE PATIENT')
             all_ok = False
             break
         target.first.click(force=True)

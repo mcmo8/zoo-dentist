@@ -1,0 +1,15 @@
+{
+  "_note": "Locked lobby seat placements (tuned in lobby-tuner.html). Coordinates are center-anchored in a 360-wide stage; sprite width = 120*s. All 8 sad-sitting poses are in assets/animals-sit/*.webp (elephant included — placeholder resolved).",
+  "stageWidth": 360,
+  "spriteBaseWidth": 120,
+  "seats": {
+    "bunny":    { "x": 47,  "y": 276, "s": 0.70 },
+    "monkey":   { "x": 137, "y": 290, "s": 0.78 },
+    "hippo":    { "x": 225, "y": 299, "s": 0.69 },
+    "lion":     { "x": 319, "y": 293, "s": 0.78 },
+    "croc":     { "x": 54,  "y": 286, "s": 0.81 },
+    "tiger":    { "x": 142, "y": 284, "s": 0.77 },
+    "giraffe":  { "x": 225, "y": 287, "s": 0.79 },
+    "elephant": { "x": 317, "y": 293, "s": 0.95 }
+  }
+}

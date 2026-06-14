@@ -63,6 +63,19 @@ problems from a ROUNDS data table (slot -> state + overlay + tool; unlisted = cl
 author 8-10 rounds). Add `assets/**/*.{svg,webp}` to Workbox precache; keep portrait
 lock + safe-area.
 
+### Step 5b — lobby = pick characters from the waiting-room seats (replaces the tile grid)
+Replace the character TILE grid with the animals SEATED in the waiting-room. Render
+each patient as a tappable sprite using its sad-sitting pose `assets/animals-sit/<name>.webp`
+(all 8 exist: bunny, monkey, hippo, lion, croc, tiger, giraffe, elephant), positioned
+from `assets/lobby-seats.json` (center-anchored coords in a 360-wide stage, sprite
+width = 120*s). Tapping a seated animal starts that patient's treatment.
+ROTATION: the waiting-room art has ~4 chairs, so show ~4 seated at a time and rotate
+which patients occupy the fixed seat slots each new round/visit (do not pile all 8 on
+at once). Keep the sitting sprites at their current (already-rich) colors.
+NOTE: the 6-mechanic roster is bunny/monkey/hippo/elephant/croc/lion; tiger + giraffe
+have lobby poses but no treatment mechanics yet — only seat patients that have a
+treatment, or treat tiger/giraffe as future content.
+
 ## Step 6 — back-test
 tsc clean; build green; `scripts/smoke_full.py` 6 visits zero console errors; re-shoot
 title + lobby + 6 treatment screens at 360x720.

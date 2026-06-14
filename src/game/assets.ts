@@ -19,6 +19,16 @@ import croc from '../../assets/animals/croc.svg';
 import tiger from '../../assets/animals/tiger.svg';
 import giraffe from '../../assets/animals/giraffe.svg';
 
+/* ---------- animals: sad-sitting lobby poses (WebP, transparent) ---------- */
+import bunnySit from '../../assets/animals-sit/bunny.webp';
+import lionSit from '../../assets/animals-sit/lion.webp';
+import elephantSit from '../../assets/animals-sit/elephant.webp';
+import hippoSit from '../../assets/animals-sit/hippo.webp';
+import monkeySit from '../../assets/animals-sit/monkey.webp';
+import crocSit from '../../assets/animals-sit/croc.webp';
+import tigerSit from '../../assets/animals-sit/tiger.webp';
+import giraffeSit from '../../assets/animals-sit/giraffe.webp';
+
 /* ---------- tools (SVG, transparent, tight viewBox) ---------- */
 import drill from '../../assets/tools/drill.svg';
 import brush from '../../assets/tools/brush.svg';
@@ -77,6 +87,13 @@ export const ANIMAL_ART = {
 } as const;
 export type AnimalArtId = keyof typeof ANIMAL_ART;
 export const animalArt = (id: AnimalId): string => ANIMAL_ART[id];
+
+/** Sad-sitting lobby poses (waiting-room seats). All 8 exist; the roster seats 6. */
+export const ANIMAL_SIT_ART = {
+  bunny: bunnySit, lion: lionSit, elephant: elephantSit, hippo: hippoSit,
+  monkey: monkeySit, croc: crocSit, tiger: tigerSit, giraffe: giraffeSit,
+} as const;
+export const animalSit = (id: AnimalId): string => ANIMAL_SIT_ART[id];
 
 /** Every tool sprite, imported once. */
 export const TOOL_ART = {

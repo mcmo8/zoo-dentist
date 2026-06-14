@@ -169,22 +169,48 @@
 /* ---------- lobby ---------- */
 
 .zd-lobby {
-  background-color: #d8f0e4;
+  background-color: #cde7dd;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* fixed-aspect waiting-room stage (matches the 360x639 seat tuner) so the seated
+   sprites land on the chairs on any screen; the room art covers the stage. */
+.zd-lobby-stage {
+  position: relative;
+  width: min(100%, calc(100vh * 360 / 639));
+  aspect-ratio: 360 / 639;
+  overflow: hidden;
+}
+.zd-lobby-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .zd-lobby-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 14px 4px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 6px;
 }
 .zd-lobby-title {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 900;
   color: #1d3557;
+  text-shadow: 0 2px 0 #fff, 0 -1px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff;
 }
 .zd-lobby-title span {
-  color: #ff7bac;
+  color: #ff4d8d;
 }
 .zd-lobby-right {
   display: flex;
@@ -198,82 +224,77 @@
   background: #fff;
   border: 3px solid #1d3557;
   border-radius: 18px;
-  padding: 5px 12px;
+  padding: 4px 11px;
   font-weight: 900;
   color: #1d3557;
 }
 
-.zd-grid {
-  flex: 1;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-  padding: 12px 14px calc(20px + env(safe-area-inset-bottom, 12px));
-  align-content: start;
+/* a patient seated in a chair, center-anchored at its seat coords */
+.zd-seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
-
-.zd-card {
-  position: relative;
-  border: 3.5px solid #1d3557;
-  border-radius: 20px;
-  padding: 8px 6px 10px;
-  box-shadow: 0 4px 0 #1d355733;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+.zd-seat:disabled {
+  cursor: default;
 }
-.zd-card:active {
-  transform: scale(0.95);
-}
-.zd-card-face {
+/* the img (inner element) carries the animation/scale; the button keeps the
+   translate(-50%,-50%) centering so the pulse can't clobber the positioning. */
+.zd-seat-img {
   width: 100%;
-  max-height: 130px;
+  height: auto;
+  display: block;
+  transform-origin: center bottom;
+  filter: drop-shadow(0 4px 4px rgba(29, 53, 87, 0.35));
 }
-.zd-card-name {
-  font-size: 18px;
-  font-weight: 900;
-  color: #1d3557;
-  margin-top: 4px;
+.zd-seat-img.zd-seat-awake {
+  animation: zd-nudge 1.6s ease-in-out infinite;
 }
-/* gentle "it's your turn" pulse — small enough that the face never ghosts */
-.zd-card-next {
-  animation: zd-nudge 1.5s ease-in-out infinite;
+.zd-seat-img.zd-seat-sleep {
+  filter: grayscale(0.5) brightness(0.95) drop-shadow(0 3px 3px rgba(29, 53, 87, 0.25));
+  opacity: 0.86;
 }
-/* not-yet-unlocked patients stay full-bright + full-saturation (the scripted
-   curve still gates the tap); a small Zzz is the only "asleep" cue. */
-.zd-card-locked {
-  opacity: 1;
+.zd-seat:active .zd-seat-img {
+  animation: none;
+  transform: scale(0.93);
 }
-.zd-zzz {
+.zd-seat-ouch {
   position: absolute;
-  top: 8px;
-  right: 10px;
-  font-weight: 900;
-  color: #1d3557;
-  opacity: 0.7;
-}
-.zd-ouch {
-  position: absolute;
-  top: 6px;
-  right: 8px;
+  top: -6px;
+  right: -6px;
   background: #fff;
   border: 2.5px solid #1d3557;
   border-radius: 50%;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   animation: zd-bouncey 0.9s ease-in-out infinite;
 }
-.zd-badge {
+.zd-zzz {
   position: absolute;
-  top: 8px;
-  left: 10px;
-  color: #f4b400;
+  top: -10px;
+  right: -2px;
+  font-weight: 900;
+  color: #1d3557;
+  opacity: 0.75;
   font-size: 15px;
+}
+.zd-seat-badge {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #f4b400;
+  font-size: 14px;
   text-shadow: 0 1px 0 #1d3557;
   letter-spacing: 1px;
+  white-space: nowrap;
 }
 
 /* ---------- celebrate ---------- */

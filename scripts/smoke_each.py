@@ -17,9 +17,12 @@ from playwright.sync_api import sync_playwright
 
 VB_W, VB_H, TRAY_Y = 360, 560, 500
 TIP_DY = 56  # cursor sits this far below the contact point (tool acts at cursor - 56)
-NAMES = ['Pip', 'Momo', 'Hugo', 'Ella', 'Snappy', 'Leo']
-SEED = ('{"treated":{"bunny":1,"monkey":1,"hippo":1,"croc":1,"lion":1,'
-        '"elephant":1},"totalVisits":6,"muted":true}')
+# The lobby seats 4 of 6 and rotates the dual-candidate chairs by visit parity:
+# even -> bunny/monkey/hippo/lion ; odd -> croc/monkey/hippo/elephant. Pick a
+# totalVisits parity that seats each target, then tap its seat by aria-label.
+ROSTER = [('Pip', 6), ('Momo', 6), ('Hugo', 6), ('Ella', 7), ('Snappy', 7), ('Leo', 6)]
+SEED_TMPL = ('{{"treated":{{"bunny":1,"monkey":1,"hippo":1,"croc":1,"lion":1,'
+             '"elephant":1}},"totalVisits":{tv},"muted":true}}')
 errors = []
 def p_(m): print(m, flush=True)
 
@@ -134,15 +137,15 @@ def play_visit(pg):
 
 with sync_playwright() as pw:
     all_ok = True
-    for name in NAMES:
+    for name, tv in ROSTER:
         b = pw.chromium.launch()
         pg = b.new_page(viewport={'width': 360, 'height': 720})
         pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
         pg.on('pageerror', lambda e: errors.append(str(e)))
-        pg.add_init_script(f"localStorage.setItem('zoosmiles_save_v1', '{SEED}')")
+        pg.add_init_script(f"localStorage.setItem('zoosmiles_save_v1', '{SEED_TMPL.format(tv=tv)}')")
         pg.goto('http://localhost:4173'); pg.wait_for_load_state('networkidle')
         pg.click('text=PLAY', force=True); pg.wait_for_timeout(400)
-        pg.click(f'.zd-card:has-text("{name}")', force=True); pg.wait_for_timeout(600)
+        pg.click(f'.zd-seat[aria-label^="{name}"]', force=True); pg.wait_for_timeout(600)
         ok = play_visit(pg)
         p_(f'{name:7s}: {"COMPLETE" if ok else "INCOMPLETE"}')
         all_ok &= ok
