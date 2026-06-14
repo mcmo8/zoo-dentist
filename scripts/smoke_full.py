@@ -151,13 +151,15 @@ with sync_playwright() as p:
 
     all_ok = True
     for visit_no in range(1, 7):
-        # the scripted-next patient is the only awake seat (aria-label "... needs help")
-        target = page.locator('.zd-seat[aria-label*="needs help"]')
-        if target.count() == 0:
-            print('NO AWAKE PATIENT')
+        # free play: every seated patient is tappable; rotate the chair each visit so
+        # one session still exercises every mechanic (chairs rotate patients by parity)
+        target = page.locator('.zd-seat')
+        n = target.count()
+        if n == 0:
+            print('NO PATIENT SEATED')
             all_ok = False
             break
-        target.first.click(force=True)
+        target.nth((visit_no - 1) % n).click(force=True)
         page.wait_for_timeout(500)
         if not run_visit(page, svg, label, visit_no):
             all_ok = False

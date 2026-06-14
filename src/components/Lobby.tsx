@@ -1,14 +1,14 @@
 import type { AnimalId, SaveData } from '../game/types';
 import { ANIMAL_BY_ID } from '../game/animals';
-import { nextScripted } from '../game/levels';
 import { animalSit, BACKGROUNDS } from '../game/assets';
 import * as sfx from '../lib/sfx';
 
 /* The waiting room: patients sit in the chairs (their sad-sitting poses) and you tap
-   one to treat it. The room art has ~4 chairs, so we seat 4 at a time and rotate which
-   patients occupy the fixed chair slots each visit (rather than piling all of them on).
-   During the scripted teaching phase only the next patient is awake; afterwards anyone
-   seated can be picked, forever.
+   one to treat it. FREE PLAY — every seated patient is available in any order (no
+   scripted gating). The room art has ~4 chairs, so we seat 4 at a time and rotate
+   which patients occupy the fixed chair slots each visit (rather than piling all on).
+   The first time you treat any animal it still gets its gentle one-mechanic intro
+   (levels.ts, treatedBefore === 0); repeats roll.
 
    Geometry mirrors assets/lobby-tuner.html exactly: a 360x639 stage, the room art
    covers it, and each sprite is center-anchored at its seat (sprite width = 120*s).
@@ -49,18 +49,9 @@ export function Lobby({
   muted: boolean;
   onToggleMute: () => void;
 }) {
-  const next = nextScripted(save.treated);
-
   // rotate the dual-candidate chairs by visit count so all patients cycle through
   const parity = save.totalVisits % 2;
   const seated = CHAIRS.map((c) => c[parity % c.length]);
-  // during the scripted phase, make sure the next patient is the one in its chair
-  if (next) {
-    const ci = CHAIRS.findIndex((c) => c.includes(next));
-    if (ci >= 0) seated[ci] = next;
-  }
-
-  const canPick = (id: AnimalId) => (next ? id === next : true);
 
   return (
     <div className="zd-screen zd-lobby">
@@ -91,7 +82,6 @@ export function Lobby({
 
         {seated.map((id) => {
           const seat = SEATS[id];
-          const awake = canPick(id);
           const treated = save.treated[id] ?? 0;
           return (
             <button
@@ -102,41 +92,29 @@ export function Lobby({
                 top: `${(seat.y / STAGE_H) * 100}%`,
                 width: `${((SPRITE_W * seat.s) / STAGE_W) * 100}%`,
               }}
-              disabled={!awake}
-              aria-label={`${ANIMAL_BY_ID[id].name}${awake ? ' — needs help' : ' — sleeping'}`}
-              onClick={
-                awake
-                  ? () => {
-                      sfx.pop();
-                      onPick(id);
-                    }
-                  : undefined
-              }
+              aria-label={`${ANIMAL_BY_ID[id].name} — needs help`}
+              onClick={() => {
+                sfx.pop();
+                onPick(id);
+              }}
             >
               <img
-                className={`zd-seat-img ${awake ? 'zd-seat-awake' : 'zd-seat-sleep'}`}
+                className="zd-seat-img zd-seat-awake"
                 src={animalSit(id)}
                 alt=""
                 draggable={false}
               />
-              {awake && (
-                <span className="zd-seat-ouch" aria-hidden>
-                  <svg viewBox="0 0 24 24" width="18" height="18">
-                    <path
-                      d="M7 5 C7 2.6 9.6 2 12 2 C14.4 2 17 2.6 17 5 C17 7.4 16.2 9 15.8 11.4 C15.5 13.4 15.4 16 14 16 C12.7 16 13.2 12 12 12 C10.8 12 11.3 16 10 16 C8.6 16 8.5 13.4 8.2 11.4 C7.8 9 7 7.4 7 5 Z"
-                      fill="#fdfaf2"
-                      stroke="#1d3557"
-                      strokeWidth="1.6"
-                    />
-                    <circle cx="12" cy="7" r="2.4" fill="#3a2414" />
-                  </svg>
-                </span>
-              )}
-              {!awake && (
-                <span className="zd-zzz" aria-hidden>
-                  Zzz
-                </span>
-              )}
+              <span className="zd-seat-ouch" aria-hidden>
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path
+                    d="M7 5 C7 2.6 9.6 2 12 2 C14.4 2 17 2.6 17 5 C17 7.4 16.2 9 15.8 11.4 C15.5 13.4 15.4 16 14 16 C12.7 16 13.2 12 12 12 C10.8 12 11.3 16 10 16 C8.6 16 8.5 13.4 8.2 11.4 C7.8 9 7 7.4 7 5 Z"
+                    fill="#fdfaf2"
+                    stroke="#1d3557"
+                    strokeWidth="1.6"
+                  />
+                  <circle cx="12" cy="7" r="2.4" fill="#3a2414" />
+                </svg>
+              </span>
               {treated > 0 && (
                 <span className="zd-seat-badge" aria-hidden>
                   {'★'.repeat(Math.min(3, treated))}

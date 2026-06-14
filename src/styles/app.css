@@ -240,9 +240,6 @@
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.zd-seat:disabled {
-  cursor: default;
-}
 /* the img (inner element) carries the animation/scale; the button keeps the
    translate(-50%,-50%) centering so the pulse can't clobber the positioning. */
 .zd-seat-img {
@@ -254,10 +251,6 @@
 }
 .zd-seat-img.zd-seat-awake {
   animation: zd-nudge 1.6s ease-in-out infinite;
-}
-.zd-seat-img.zd-seat-sleep {
-  filter: grayscale(0.5) brightness(0.95) drop-shadow(0 3px 3px rgba(29, 53, 87, 0.25));
-  opacity: 0.86;
 }
 .zd-seat:active .zd-seat-img {
   animation: none;
@@ -275,15 +268,6 @@
   display: grid;
   place-items: center;
   animation: zd-bouncey 0.9s ease-in-out infinite;
-}
-.zd-zzz {
-  position: absolute;
-  top: -10px;
-  right: -2px;
-  font-weight: 900;
-  color: #1d3557;
-  opacity: 0.75;
-  font-size: 15px;
 }
 .zd-seat-badge {
   position: absolute;
