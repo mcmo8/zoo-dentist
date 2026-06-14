@@ -79,3 +79,37 @@ resemblance to BabyBus tooth moths). Original animal cast, no panda.
 
 Ads, IAP, subscriptions, tracking, rate-us nags, "more games" links, padlock
 badges, timers, fail states, scores.
+
+## Shipped state (June 13, 2026) — deviations from the v1 plan above
+
+Shipped to production (`mcmo8/zoo-dentist`, Vercel auto-deploy on `main`). The
+research-locked design above is intact at the mechanics layer; the following
+evolved during the connector-art build and are the current truth:
+
+- **Free play is the default, not scripted-first-6.** A fresh game opens with
+  every seated patient tappable in any order — no scripted lock. The teaching
+  value is retained per-animal: the FIRST treatment of each animal still uses its
+  scripted one-mechanic intro (`levels.ts`, `treatedBefore === 0`); repeats roll.
+  The scripted-order mechanism (`nextScripted`/`SCRIPT_ORDER`) is kept in
+  `levels.ts` but unused — re-enable by restoring its gating in `Lobby.tsx`.
+- **Universal mouth, not per-animal boards.** All 6 patients share ONE uniform
+  open-mouth (5 upper + 5 lower teeth); identity is the head behind it. The mouth
+  is the artist's layered SVG, inlined in `src/components/mouthArt.tsx` and drawn
+  in two passes (interior+lips < teeth < gum ridges) so the gums hide the roots.
+  Geometry locked in `assets/mouth-layout.json`; per-animal head fit in
+  `AnimalFace.tsx` `HEAD_CALIB`. (The "bunny tiny mouth / croc many fangs" idea
+  was dropped — uniform mouth, per-animal head behind it.)
+- **Progressive work-meter tools (Step 4).** Every problem tool fills a per-tooth
+  meter while held on a live target (refs only, no per-frame re-render); the
+  problem fades as it fills, with pooled+capped particles, a drill/pull judder,
+  and feature-guarded haptics (`src/lib/haptics.ts`). Per-tool feel constants in
+  `Treatment.tsx` `TOOL_FEEL` mirror `assets/scrub-demo.html` + `drill-demo.html`.
+- **Lobby = seated waiting room (Step 5b).** Patients sit in the chairs (poses in
+  `assets/animals-sit/`); tap a seat to treat. 4 chairs rotate which patients sit
+  by visit parity. Layout locked in `assets/lobby-seats.json`. tiger + giraffe
+  have seat poses but no mechanics yet (future content; never seated).
+- **Art is the connector/ChatGPT flat vivid set**, not the originally-planned
+  gradient "Shape Builder" look. Animals/tools = SVG, teeth/effects/backgrounds =
+  WebP; originals of the recolored set in `assets/_orig/`, raw sources in `images/`.
+- **Tuner-first workflow** (Mike's standing instruction): for any visual-fit task,
+  build a self-contained slider tuner early — `assets/{mouth,head,lobby}-tuner.html`.
