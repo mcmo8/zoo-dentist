@@ -4,6 +4,7 @@ import { ANIMAL_BY_ID } from './game/animals';
 import { makeVisit } from './game/levels';
 import { loadSave, persistSave } from './lib/storage';
 import { setMuted } from './lib/sfx';
+import { analytics } from './lib/analytics';
 import { Title } from './components/Title';
 import { Lobby } from './components/Lobby';
 import { Treatment } from './components/Treatment';
@@ -21,8 +22,19 @@ export default function App() {
     persistSave(save);
   }, [save]);
 
+  // Usage analytics: log app open once, and a session-length ping on hide.
+  useEffect(() => {
+    analytics.appOpen();
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') analytics.sessionEnd();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    return () => document.removeEventListener('visibilitychange', onHide);
+  }, []);
+
   function startVisit(id: AnimalId) {
     const treatedBefore = save.treated[id] ?? 0;
+    analytics.track('animal_open', id);
     setVisit(makeVisit(id, treatedBefore, save.totalVisits));
     recordedRef.current = false;
     setScreen('treat');
